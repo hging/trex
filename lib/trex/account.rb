@@ -7,19 +7,45 @@ module Trex
     end
     
     def buy market, amt, rate, &b
-      if Trex::Opts["sim"]
-        b.call Order.new({
+      self.class.buy self, market,amt, rate,&b
+    end
+    
+    def self.buy act, market,amt, rate,&b
+      uuid = nil
+      
+      if Trex.env[:simulate]
+        uuid  = Time.now.to_f
+        order = Order.new({
           "Quantity"     => (amt*0.9975) / rate,
           "PricePerUnit" => rate,
           "Price"        => amt,
           "Closed"       => true,
-          "Uuid"         => Time.now.to_f
+          "Uuid"         => uuid
         })
+        
+        b.call order if b
+      else
+        uuid = Trex.get({
+          key:     act.key,
+          secret:  act.secret,
+          version: 1.1,
+          api:     :market,
+          method:  :buylimit,
+          query:   {
+            quantity: (amt*0.9975)/rate,
+            rate:     rate,
+            market:   market
+          }
+        })
+        
+        Trex::Order.on_fill[uuid] = b if b
       end
+      
+      return uuid    
     end
     
     def sell market, amt, rate, &b
-      if Trex::Opts["sim"]
+      if Trex.env[:simulate]
         b.call Order.new({
           "Quantity"     => amt,
           "PricePerUnit" => rate,
@@ -30,28 +56,73 @@ module Trex
       end
     end
     
-    def balance coin
-    
+    def cancel uuid
+      Order.get(self, uuid).cancel
     end
-  end
-
-  class Order
-    attr_accessor :uuid, :quantity, :state, :price, :price_per_unit, :type
-    def initialize obj
-      @quantity = obj["Quantity"]
-      @state    = obj["Closed"] ? :closed : :open
-      @price    = obj["Price"]
-      @uuid     = obj["Uuid"]
+    
+    Balance = Struct.new(:amount, :avail, :coin, :address, :pending) do
+      def btc amount = self.amount
+        amount * Trex.env[:rates][coin]
+      end
       
-      @price_per_unit = obj["PricePerUnit"]
+      def usd amount = self.amount
+        amount * Trex.env[:rates][:btc]
+      end
+      
+      def self.from_obj obj
+        ins = new
+        {"Balance" => :amount, "Available" => :avail, "Currency" => :coin, "Pending" => :pending, "CryptoAddress" => :address}.each_pair do |h,s|
+          ins[s] = obj[h]
+        end
+        ins
+      end
     end
     
-    def rate
-      price_per_unit
+    def balance coin, struct: true
+      obj = Trex.get({
+        api:     :account,
+        version: 1.1,
+        method:  :getbalance,
+        key:     key,
+        secret:  secret,
+        query:   {
+          currency: coin.to_s.upcase
+        }
+      })
+      
+      return obj unless struct
+      
+      Balance.from_obj obj
     end
     
-    def closed?
-      state == :closed
+    def balances struct: true
+      obj = Trex.get({
+        api:     :account,
+        version: 1.1,
+        method:  :getbalances,
+        key:     key,
+        secret:  secret      
+      })
+      
+      return obj unless struct
+      
+      obj.map do |b|
+        Balance.from_obj b
+      end
+    end
+    
+    def to_struct
+      self.class.Struct.new key,secret
+    end
+    
+    self::Struct = ::Struct.new(:key, :secret) do
+      def to_act
+        Trex::Account.new(key, secret)
+      end
+      
+      def to_struct
+        self
+      end
     end
   end
 end

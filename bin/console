@@ -1,0 +1,6 @@
+#!/usr/bin/env ruby
+require 'pry'
+require 'trex'
+require 'grio/dsl'
+
+Pry.start

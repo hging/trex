@@ -6,6 +6,12 @@ require 'grio/websocket'
 
 module Trex
   module SocketAPI
+    State = Struct.new(:bids, :asks, :trades) do
+      Entry = Struct.new(:type, :amount, :rate) do
+      
+      end
+    end
+  
     protected
     def self.extended ins
       ins.on :message do |e| 
@@ -33,7 +39,7 @@ module Trex
     
     private
     def self.get_cookie
-      out="./get_cookies.js"
+      out=File.join(Trex.libdir,"data","get_cookies.js")
       
       obj = JSON.parse(`phantomjs #{out}`)
       
@@ -74,7 +80,7 @@ module Trex
       end
     end
 
-    protected  
+    private
     def update_state exchg
       if cb=@on_update_exchange_state_cb
         cb.call exchg
@@ -129,6 +135,8 @@ module Trex
 end
 
 if __FILE__ == $0
+  require 'trex'
+  
   GLibRIO.run do
     Trex::SocketAPI.connect do |s|
       markets = ["ETH-CVC"]
