@@ -74,7 +74,7 @@ module Trex
   end
   
   def self.ticker market, struct: true
-    Market.ticker market, struct
+    Market.ticker market, struct: struct
   end
   
   module Market
@@ -116,6 +116,10 @@ module Trex
       def self.for market
         Trex::Market.ticker(market)
       end
+      
+      def pp
+        "B:#{bid} A:#{ask} L:#{last}"
+      end
     end
     
     def self.ticker market, struct: true
@@ -128,10 +132,59 @@ module Trex
         }
       })
       
+      (Trex.env[:rates] ||= {})[market] = obj["Last"] unless Trex.env[:streaming_rates]
+      
       return obj unless struct
       
       Ticker.from_obj obj
     end
+    
+    module Summary
+      def self.from_obj obj
+        obj.extend self
+      end
+      
+      [:market_name, :volume, :prev_day, :open, :close, :high, :low, :last, :base_volume, :bid, :ask].each do |k|
+        define_method k do
+          self[k.to_s.split("_").map do |c| c.capitalize end.join]
+        end
+      end
+    end
+    
+    def self.summaries struct: true
+      obj = Trex.get({
+        method:  :getmarketsummaries,
+        version: 1.1,
+        api:     :public
+      })
+      
+      obj.each do |o|
+        (Trex.env[:rates] ||= {})[market] = o["Last"] unless Trex.env[:streaming_rates]
+      end
+      
+      return obj unless struct
+      
+      obj.map do |o|
+        Summary.from_obj o
+      end
+    end
+    
+    def self.summary market, struct: true
+      obj = Trex.get({
+        method:  :getmarketsummary,
+        version: 1.1,
+        api:     :public,
+        query: {
+          market: market
+        }
+      })
+      
+      (Trex.env[:rates] ||= {})[market] = obj["Last"] unless Trex.env[:streaming_rates]
+      
+      return obj unless struct
+      
+      Summary.from_obj obj
+    end    
   end
   
   Order = Struct.new(:uuid, :quantity, :state, :price, :price_per_unit, :type, :account) do    
@@ -267,6 +320,10 @@ module Trex
   
   def self.buy key, secret, market, amount, rate
     Account.buy account(key, secret), market, amount, rate
+  end
+  
+  def self.summaries struct: true
+    Market.summaries struct: struct
   end
 end
 
