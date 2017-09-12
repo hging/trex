@@ -68,15 +68,7 @@ module Trex
       raise "Unknown API #{api}"
     end
   end
-  
-  def self.get_ticks market, interval=:oneMin, struct: true
-    Market.ticks market, interval, struct: struct
-  end
-  
-  def self.ticker market, struct: true
-    Market.ticker market, struct: struct
-  end
-  
+    
   module Market
     Tick = Struct.new(:high,:low,:open,:close, :btc_volume, :volume) do
       def self.from_obj obj
@@ -325,6 +317,14 @@ module Trex
   def self.summaries struct: true
     Market.summaries struct: struct
   end
+  
+  def self.get_ticks market, interval=:oneMin, struct: true
+    Market.ticks market, interval, struct: struct
+  end
+  
+  def self.ticker market, struct: true
+    Market.ticker market, struct: struct
+  end  
 end
 
 if __FILE__ == $0
@@ -345,4 +345,6 @@ if __FILE__ == $0
   
   Trex::Market::Ticker.for("BTC-CVC")
   Trex::Market.ticker "BTC-CVC"
+  
+  p Trex.env[:rates]
 end

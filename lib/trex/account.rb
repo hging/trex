@@ -62,17 +62,16 @@ module Trex
     
     Balance = Struct.new(:amount, :avail, :coin, :address, :pending) do
       def btc amount = self.amount
-        market = "BTC-#{coin.to_s.upcase}"
-        return amount if coin.to_s.upcase == "BTC"
-        amount * Trex.env[:rates][market]
+        Trex.btc coin,amount
       end
       
       def usd amount = self.amount
-        btc * Trex.btc_usd
+        Trex.usd coin,amount
       end
       
       def self.from_obj obj
         ins = new
+        
         {"Balance" => :amount, "Available" => :avail, "Currency" => :coin, "Pending" => :pending, "CryptoAddress" => :address}.each_pair do |h,s|
           ins[s] = obj[h]
         end

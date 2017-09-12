@@ -11,6 +11,17 @@ module Trex
         def self.from_obj type, obj, data: nil
           new type, obj["Quantity"], obj["Rate"], data
         end
+        
+        def match? amt, rate
+          case type
+          when :ask
+            self.rate <= rate
+          when :sell
+            self.rate <= rate
+          else 
+            self.rate >= rate
+          end and amt >= amt
+        end
       end
       
       def update delta
@@ -36,6 +47,60 @@ module Trex
         ins.bids ||= {}; ins.asks ||= {}; ins.trades ||= {}
         ins
       end
+      
+      def low_ask
+        asks.keys.sort[0]
+      end
+      
+      def high_bid
+        bids.keys.sort[-1]
+      end
+      
+      def rate_at volume, type
+        v = 0
+        partials=[]
+        
+        (type == :ask ? (t=asks).keys.sort : (t=bids).keys.sort.reverse).each do |rate|
+          ov=v
+          v += tv=t[rate].amount
+          if v >= volume 
+            partials << [volume-ov,rate]
+            break
+          else
+            partials << [tv, rate]
+          end
+        end
+          
+        cost=0
+        partials.each do |a|
+          cost += a[0]*a[1]
+        end
+          
+        cost / volume
+      end
+      
+      def amt_for base, type
+        b = 0
+        partials=[]
+        
+        (type == :ask ? (t=asks).keys.sort : (t=bids).keys.sort.reverse).each do |rate|
+          ob=b
+          b += tb=t[rate].amount*base
+          if b >= base 
+            partials << [base-ob, rate]
+            break
+          else
+            partials << [tb, rate]
+          end
+        end
+          
+        amt=0
+        partials.each do |a|
+          amt += a[0]/a[1]
+        end
+          
+        amt
+      end      
     end
   
     protected
@@ -266,15 +331,43 @@ module Trex
   def self.socket
     Socket
   end
+  
+  def self.stream &b
+    b.call socket.singleton
+  end
 end
 
 if __FILE__ == $0
   require 'trex'
   
   GLibRIO.run do
+    bal  = 0.006
+    amt  = 0.0
+    rate = 0.0
+    cycles = 0
+    current = 0
+    buy  = true
+    sell = false
     Trex.socket.order_books "BTC-OK" do |book, market, json_obj|
       begin
-        printf "\r#{market} $#{Trex.usd(market: market).trex_s}: #{book.bids.keys.sort[-1].trex_s} #{book.asks.keys.sort[0].trex_s} 1BTC = #{Trex.btc_usd.trex_s(3)} 1ETH = #{Trex.usd(:ETH, 1).trex_s(3)} 1LTC = #{Trex.usd(:LTC,1).trex_s(3)}"
+        if buy
+          q = book.amt_for(bal*0.9975,:ask)
+          if q > amt
+            amt = q
+            sell = true
+            buy  = false
+          end
+        elsif sell
+          rate =  book.rate_at(amt, :bid)
+          if (current=rate * amt * 0.9975) > bal
+            bal = current
+            sell=false
+            buy=true
+            cycles += 1
+          end
+        end
+                  
+        printf "\r[#{cycles} #{bal} #{amt} : #{buy ? :buy : "sell - #{(current / bal).round(3)}"}] #{market} $#{Trex.usd(market: market).trex_s}: #{book.bids.keys.sort[-1].trex_s} #{book.asks.keys.sort[0].trex_s} 1BTC = #{Trex.btc_usd.trex_s(3)} 1ETH = #{Trex.usd(:ETH, 1).trex_s(3)} 1LTC = #{Trex.usd(:LTC,1).trex_s(3)}"
       rescue
       end
     end 
