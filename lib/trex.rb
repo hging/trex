@@ -33,7 +33,7 @@ module Trex
   end
   
   def self.env
-    @env ||= {}
+    @env ||= {last_n_ticks: {}, averages: {}}
   end
   
   if Object.const_defined?(:GLibRIO)
@@ -112,6 +112,7 @@ module Trex
   end  
 end
 
+Trex.env[:cloud_flare] = ARGV.index("--trex-cloud-flare-bypass")
 
 if __FILE__ == $0
   Trex.run do

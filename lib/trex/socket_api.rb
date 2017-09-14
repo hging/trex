@@ -106,6 +106,8 @@ module Trex
     protected
     def self.extended ins
       ins.on :message do |e| 
+        puts e.data if ARGV.index("--trex-debug-socket-messages")
+      
         j = (JSON.parse(e.data)["M"] ||= []).find_all do |h| h["H"] == "CoreHub" end
 
         j.each do |o|
@@ -149,7 +151,12 @@ module Trex
 
     private
     def self.get_headers
-      ua, cookie = get_cookie
+      
+      cookie = ""  
+      ua     = "Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/51.0.2704.79 Chrome/51.0.2704.79 Safari/537.36"
+      
+      p((ua, cookie = get_cookie)) if Trex.env[:cloud_flare]
+     
       headers={
         Connection:   'Upgrade',
         Cookie:       cookie,
@@ -162,7 +169,7 @@ module Trex
     end  
     
     public
-    def self.connect &b
+    def self.connect &b      
       headers = get_headers
       
       GLibRIO.connect_web_socket("socket.bittrex.com", 80, uri: get_socket_uri(headers[:Cookie], headers[:"User-Agent"]), headers: headers) do |s|
@@ -227,6 +234,23 @@ module Trex
   module Socket
     @pending_book_watch    = []
     @pending_summary_watch = []
+    
+    def self.flash_watch *markets,&b
+      singleton
+      
+      markets.each do |market|
+        (@flash_watch ||= {})[market] = b
+      end
+    end
+    
+    def self.flash_crash market,rate
+      p({FLASH: market, rate: rate})
+      
+      if @on_flash
+        cb = (@flash_watch ||= {})[market]
+        cb.call(market, rate) if cb
+      end
+    end
     
     def self.order_books *markets, &b
       @books     ||= {}
@@ -297,8 +321,60 @@ module Trex
         Trex.env[:streaming_rates] = true
         
         s.on :update_summary_state do |s|
-          Trex.env[:rates][s["MarketName"]] = s["Last"]
+          Trex.env[:rates][market = s["MarketName"]] = s["Last"]
+          
+          if s 
+            lta = (Trex.env[:last_n_ticks][market = s["MarketName"]] ||= [])
+            lta << s["Ask"]
+          else
+            next
+          end
+          
+          t = 0 
+          aa=(Trex.env[:averages][market] ||= [])
+          aa.each do |a| t = t+a end
+          
+          if t > 0
+            avg = t / aa.length 
+          
+            if lta.last <= (avg - (avg * 0.1))
+              Trex.socket.flash_crash market, lta.last
+            end
+          end
+          
+          t = 0
+          lta[0..-2].each do |r| 
+            if r
+              t+= r
+            end
+          end
+          
+          if t > 0  
+            n_avg = t / (lta.length-1)
+
+            (Trex.env[:averages][market] ||=[]) << n_avg
+          end          
         end
+        
+        Trex.timeout 120000 do
+          la = Trex.env[:averages]
+         
+          la.map do |m,a|
+            la[m] = a[-2..-1] if a.length > 2
+          end
+          p Time.now
+          true
+        end
+        
+        Trex.timeout 3000 do
+          lt = Trex.env[:last_n_ticks]
+         
+          lt.map do |m,a|
+            lt[m] = a[-2..-1] if a.length > 2
+          end
+          
+          true
+        end        
         
         s.on :open do
           @pending_book_watch.map do |k,v|
