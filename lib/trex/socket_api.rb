@@ -198,6 +198,13 @@ module Trex
     end
     
     public
+    # 
+    def subscribe *markets
+      markets.each do |market|
+        puts "{H: 'corehub', M: 'SubscribeToExchangeDeltas', A: #{[market].to_json}, I: 0}"  
+      end
+    end
+    
     # listen to summary changes on +markets (Array<String>)_
     def summaries *markets, &b
       @update_summary ||= {}
@@ -215,7 +222,7 @@ module Trex
         @update_book_state[m] = b
       end
       
-      puts "{H: 'corehub', M: 'SubscribeToExchangeDeltas', A: #{markets.to_json}, I: 0}"  
+      subscribe *markets
     end
     
     def on type, &b
@@ -235,20 +242,15 @@ module Trex
     @pending_book_watch    = []
     @pending_summary_watch = []
     
-    def self.flash_watch *markets,&b
-      singleton
-      
-      markets.each do |market|
-        (@flash_watch ||= {})[market] = b
-      end
-    end
-    
-    def self.flash_crash market,rate
-      p({FLASH: market, rate: rate})
-      
-      if @on_flash
-        cb = (@flash_watch ||= {})[market]
-        cb.call(market, rate) if cb
+    def self.flash_watch *markets, percent: 0.9,&b
+      order_books *markets do |book, market|        
+        if ask = book.low_ask
+          avg = average(market)
+          
+          if avg and (ask <= (avg*percent))
+            b.call market,ask,book
+          end
+        end
       end
     end
     
@@ -330,18 +332,6 @@ module Trex
             next
           end
           
-          t = 0 
-          aa=(Trex.env[:averages][market] ||= [])
-          aa.each do |a| t = t+a end
-          
-          if t > 0
-            avg = t / aa.length 
-          
-            if lta.last <= (avg - (avg * 0.1))
-              Trex.socket.flash_crash market, lta.last
-            end
-          end
-          
           t = 0
           lta[0..-2].each do |r| 
             if r
@@ -362,7 +352,7 @@ module Trex
           la.map do |m,a|
             la[m] = a[-2..-1] if a.length > 2
           end
-          p Time.now
+
           true
         end
         
@@ -402,6 +392,18 @@ module Trex
         end
       end  
     end
+    
+    def self.average market
+      t = 0 
+      aa=(Trex.env[:averages][market] ||= [])
+      aa.each do |a| t = t+a end
+          
+      if t > 0
+        return avg = t / aa.length 
+      end
+    
+      nil  
+    end    
   end
   
   def self.socket

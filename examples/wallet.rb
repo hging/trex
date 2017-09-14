@@ -31,7 +31,7 @@ Trex.run do
   
   print "Initializing..."
   
-  Trex.socket.flash_watch "BTC-OK","BTC-ETH","BTC-XMR" do |market, rate|
+  Trex.socket.flash_watch(*coins.map do |c| "BTC-#{c.to_s.upcase}" end, percent: 0.97)  do |market, rate|
     p [:FLASH, market, rate]
   end
     
@@ -51,7 +51,7 @@ Trex.run do
        
         s
       end.join(" ")
-     
+
       print "\r #{usd} : $#{tusd.trex_s(2)} #{btc.join(" ")} : #{tbtc.trex_s(8)}".ljust(70)
     rescue TypeError => e
       print "\r Getting rates...".ljust(70)
