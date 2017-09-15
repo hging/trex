@@ -9,7 +9,7 @@ module Trex
     OrderBook = Struct.new(:bids, :asks, :trades) do
       Entry = Struct.new(:type, :amount, :rate, :data) do
         def self.from_obj type, obj, data: nil
-          new type, obj["Quantity"], obj["Rate"], data
+          new type, obj[:Quantity], obj[:Rate], data
         end
         
         def match? amt, rate
@@ -25,20 +25,20 @@ module Trex
       end
       
       def update delta
-        delta["Buys"].each do |e|
-          e = Entry.from_obj :bid, e, data: e["Type"] == 1 
+        delta[:Buys].each do |e|
+          e = Entry.from_obj :bid, e, data: e[:Type] == 1 
           next(self.bids[e.rate] = e) unless e.data
           self.bids.delete e.rate
         end
         
-        delta["Sells"].each do |e|
-          e = Entry.from_obj :ask, e, data: e["Type"] == 1
+        delta[:Sells].each do |e|
+          e = Entry.from_obj :ask, e, data: e[:Type] == 1
           next(self.asks[e.rate] = e) unless e.data
           self.asks.delete e.rate
         end  
         
-        self.trades = delta["Fills"].map do |e|
-          e = Entry.from_obj e["OrderType"].downcase.to_sym, e
+        self.trades = delta[:Fills].map do |e|
+          e = Entry.from_obj e[:OrderType].downcase.to_sym, e
         end              
       end
       
@@ -102,24 +102,133 @@ module Trex
         amt
       end      
     end
-  
+    require 'gdbm'
+    require 'zlib'
+    @db = GDBM.new("log.trex")
+    @cnt = -1
     protected
+    @markets = {}
+    @maps = {}
+    @id=0
+    def self.n_struct_id
+      :"LoggedType#{@id+=1}"
+    end
+    
+    KM={:MarketName => 10, :Buys=>11, :Sells=>12, 
+      :Fills=>13, :Quantity=>14, :Rate=>15, 
+      :OrderType=>6, :Type=>7, :BaseVolume=>18, 
+      :Volume=>19, :Nounce=>20, :Created=>21, 
+      :PrevDay=>22, :OpenSellOrders=>23, :OpenBuyOrders=>24,
+      :TimeStamp => 25, :High => 26, :Low =>27, 
+      :Open => 28, :Close=>29, :Last=>30,
+      :Bid => 31, :Ask => 32}
+      
+    def self.extract e
+      keys = e[0].to_s
+      map = {}
+      i = -1
+  
+      while i < keys.length-1
+        key = keys[(i+=1)..i+1].to_i
+        
+        key = KM.find do |k,v| 
+          v == key 
+        end[0]
+        
+        q = e[1][map.length]
+        
+        q = extract(q) if q.is_a?(Hash)
+        
+        if q.is_a?(Array)
+          q = q.map do |qq|
+            extract qq if qq.is_a?(Hash)
+          end
+        end
+        
+        map[key] = q
+        
+        i+=1
+      end
+      
+      map
+    end
+    
+    def self.trim e
+     KM.map do |k,v|
+        if e[k]
+          (e.delete(k) and next) if [23,24,25,21].index(v)
+        
+          if (v == 17 and e[k] == 1)
+            e.delete :Quantity
+          end
+        
+          if (q=e[k]).is_a? String
+            e[v] = (idx=["BUY","SELL"].index(q)) ? 100+idx : q
+          else
+            e[v] = e[k]
+          end
+          
+          e.delete k
+        end
+      end  
+      
+      e.keys.each do |k|
+        trim(e[k]) if e[k].is_a?(Hash)
+        if e[k].is_a?(Array)
+          e[k].each do |q|
+            trim(q) if q.is_a?(Hash)
+          end
+          
+          e.delete(k) if e[k].empty?
+        end
+      end 
+    end
+    
+    def self.log o
+      e = Marshal.load(Marshal.dump(o))
+      
+      e[:MarketName] = (@markets[o[:MarketName]] ||= @markets.length-1)
+      
+      trim(e)
+      
+      va = []
+      (ka=e.keys.sort).each do |k|
+        va << e[k]
+      end
+      
+      ka = ka.map do |k| "#{k}" end.join().to_i
+    
+      @db[(@cnt+=1).to_s] = Zlib::Deflate.deflate(Marshal.dump([ka,va]))
+      
+      p extract([ka,va])
+    end
+    
+    @request_rates = {}
+    def self.requested_rates
+      @request_rates
+    end
+    
     def self.extended ins
-      ins.on :message do |e| 
+      ins.on :message do |e|
         puts e.data if ARGV.index("--trex-debug-socket-messages")
       
-        j = (JSON.parse(e.data)["M"] ||= []).find_all do |h| h["H"] == "CoreHub" end
+        j = (JSON.parse(e.data, :symbolize_names => true)[:M] ||= []).find_all do |h| h[:H] == "CoreHub" end
 
         j.each do |o|
-          if m = o["M"]
-            o["A"].each do |exchg|            
+          if m = o[:M]
+            o[:A].each do |exchg|            
+              log exchg if @request_rates[exchg[:MarketName]]
+              
               ins.instance_exec do
+                
                 update_book_state exchg
               end
             end if m == "updateExchangeState"
             
-            o["A"].each do |obj|
-              obj["Deltas"].each do |exchg|
+            o[:A].each do |obj|
+              obj[:Deltas].each do |exchg|
+                log exchg if @request_rates[exchg[:MarketName]]
+                
                 ins.instance_exec do
                   update_summary exchg
                 end
@@ -184,7 +293,7 @@ module Trex
         cb.call exchg
       end
                 
-      cb = (@update_book_state||={})[exchg["MarketName"]]
+      cb = (@update_book_state||={})[exchg[:MarketName]]
       cb.call(exchg) if cb  
     end
 
@@ -193,14 +302,15 @@ module Trex
         cb.call exchg
       end
         
-      cb = (@update_summary||={})[exchg["MarketName"]]
+      cb = (@update_summary||={})[exchg[:MarketName]]
       cb.call(exchg) if cb  
     end
     
     public
     # 
-    def subscribe *markets
+    def subscribe *markets      
       markets.each do |market|
+        SocketAPI.requested_rates[market] = true
         puts "{H: 'corehub', M: 'SubscribeToExchangeDeltas', A: #{[market].to_json}, I: 0}"  
       end
     end
@@ -210,6 +320,7 @@ module Trex
       @update_summary ||= {}
       
       markets.each do |m|
+        SocketAPI.requested_rates[m] = true
         @update_summary[m] = b
       end  
     end
@@ -282,7 +393,7 @@ module Trex
     
     def self.add_book_watch *markets, struct: true, &cb
       singleton.order_books *markets do |state|
-        market = state["MarketName"]
+        market = state[:MarketName]
         
         if struct
           if book = @books[market]
@@ -301,9 +412,9 @@ module Trex
 
     def self.add_summary_watch *markets, struct: true, &cb
       singleton.summaries *markets do |state|
-        market = state["MarketName"]
+        market = state[:MarketName]
         
-        (Trex.env[:rates] ||= {})[market] = state["Last"]
+        (Trex.env[:rates] ||= {})[market] = state[:Last]
         
         state = Summary.from_obj if struct
         
@@ -323,11 +434,11 @@ module Trex
         Trex.env[:streaming_rates] = true
         
         s.on :update_summary_state do |s|
-          Trex.env[:rates][market = s["MarketName"]] = s["Last"]
+          Trex.env[:rates][market = s[:MarketName]] = s[:Last]
           
           if s 
-            lta = (Trex.env[:last_n_ticks][market = s["MarketName"]] ||= [])
-            lta << s["Ask"]
+            lta = (Trex.env[:last_n_ticks][market = s[:MarketName]] ||= [])
+            lta << s[:Ask]
           else
             next
           end
