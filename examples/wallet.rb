@@ -19,7 +19,7 @@ key      = "7b237326fd0a49808b65cd382f762d0f"
 secret   = "90011d9842284df0998b6016e952da45"
 account  = Trex.account key, secret
 
-coins = :zec,:dash,:xmr,:ltc, :btc
+coins = :trig,:xvg,:ltc, :btc
 
 balances = get_balances account, *coins
 

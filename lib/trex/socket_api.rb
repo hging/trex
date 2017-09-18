@@ -116,7 +116,7 @@ module Trex
     
     KM={:MarketName => 10, :Buys=>11, :Sells=>12, 
       :Fills=>13, :Quantity=>14, :Rate=>15, 
-      :OrderType=>6, :Type=>7, :BaseVolume=>18, 
+      :OrderType=>16, :Type=>17, :BaseVolume=>18, 
       :Volume=>19, :Nounce=>20, :Created=>21, 
       :PrevDay=>22, :OpenSellOrders=>23, :OpenBuyOrders=>24,
       :TimeStamp => 25, :High => 26, :Low =>27, 
@@ -137,12 +137,14 @@ module Trex
         
         q = e[1][map.length]
         
-        q = extract(q) if q.is_a?(Hash)
-        
         if q.is_a?(Array)
           q = q.map do |qq|
-            extract qq if qq.is_a?(Hash)
+            next extract(qq)
           end
+        end
+        
+        if key == :OrderType
+          q = q==100 ? "BUY" : "SELL"
         end
         
         map[key] = q
@@ -154,9 +156,9 @@ module Trex
     end
     
     def self.trim e
-     KM.map do |k,v|
+      KM.map do |k,v|
         if e[k]
-          (e.delete(k) and next) if [23,24,25,21].index(v)
+          (e.delete(k) and next) if [23,24,25,21, 20].index(v)
         
           if (v == 17 and e[k] == 1)
             e.delete :Quantity
@@ -174,14 +176,29 @@ module Trex
       
       e.keys.each do |k|
         trim(e[k]) if e[k].is_a?(Hash)
+        
+        e[k] = h2map(e[k]) if e[k].is_a? Hash
+        
         if e[k].is_a?(Array)
-          e[k].each do |q|
+          e[k].each_with_index do |q,i|
             trim(q) if q.is_a?(Hash)
+            e[k][i] = h2map(e[k][i]) if q.is_a? Hash
           end
           
           e.delete(k) if e[k].empty?
         end
       end 
+    end
+    
+    def self.h2map e
+      va = []
+      (ka=e.keys.sort).each do |k|
+        va << e[k]
+      end
+      
+      ka = ka.map do |k| "#{k}" end.join().to_i    
+    
+      return [ka,va]
     end
     
     def self.log o
@@ -191,16 +208,9 @@ module Trex
       
       trim(e)
       
-      va = []
-      (ka=e.keys.sort).each do |k|
-        va << e[k]
-      end
-      
-      ka = ka.map do |k| "#{k}" end.join().to_i
+      ka,va = h2map(e)
     
       @db[(@cnt+=1).to_s] = Zlib::Deflate.deflate(Marshal.dump([ka,va]))
-      
-      p extract([ka,va])
     end
     
     @request_rates = {}
@@ -217,7 +227,7 @@ module Trex
         j.each do |o|
           if m = o[:M]
             o[:A].each do |exchg|            
-              log exchg if @request_rates[exchg[:MarketName]]
+              log exchg if @request_rates[exchg[:MarketName]] and Trex.env[:log]
               
               ins.instance_exec do
                 
@@ -227,7 +237,7 @@ module Trex
             
             o[:A].each do |obj|
               obj[:Deltas].each do |exchg|
-                log exchg if @request_rates[exchg[:MarketName]]
+                log exchg if @request_rates[exchg[:MarketName]] and Trex.env[:log]
                 
                 ins.instance_exec do
                   update_summary exchg
@@ -277,8 +287,46 @@ module Trex
       }    
     end  
     
+    class Simulator
+      class SimulatedEvent
+        attr_reader :data
+        def initialize data
+          @data = data
+        end
+      end
+    
+      def write *o;end
+      def puts  *o;end
+      def recv  *o;end
+      def read  *o;end
+      def send  *o;end
+      
+      def on type, &b
+      
+      end
+      
+      def initialize
+        db      = SocketAPI.db
+        markets = db["markets"]
+        cnt     = 0
+        nxt     = db[0]
+        
+        Trex.idle do
+          if nxt
+            @on[:message].call SimuatedEvent.new([{M:[{H: 'corehub', M: '', A: [nxt]}]}].to_json)
+          end
+          
+          nxt = db[cnt+=1]
+          
+          !!nxt
+        end
+      end
+    end
+    
     public
     def self.connect &b      
+      return Simulator.run(&b) if Trex.env[:simulate]
+      
       headers = get_headers
       
       GLibRIO.connect_web_socket("socket.bittrex.com", 80, uri: get_socket_uri(headers[:Cookie], headers[:"User-Agent"]), headers: headers) do |s|

@@ -53,7 +53,9 @@ module Trex
       query_str << "#{k}=#{v}"
     end.join("&")
     
-    uri = "https://bittrex.com/api/v#{version}/#{api}/#{method}#{query_str.empty? ? "" : "?"}#{query_str}"
+    query_str = " " if query_str == "" and (api.to_sym == :market or api.to_sym == :account)
+    
+    uri = "https://bittrex.com/api/v#{version}/#{api}/#{method}#{query_str.empty? ? "" : "?"}#{query_str}".strip
     
     case api    
     when :public
@@ -179,7 +181,7 @@ module Trex
     end    
   end
   
-  Order = Struct.new(:uuid, :quantity, :state, :price, :price_per_unit, :type, :account) do    
+  Order = Struct.new(:uuid, :quantity, :state, :price, :price_per_unit, :type, :account, :market,:limit) do    
     def marshal_dump
       if account
         cpy         = clone
@@ -193,10 +195,15 @@ module Trex
     def self.from_obj obj, account: nil
       ins = new
       
+      p obj
+      
       ins.quantity = obj["Quantity"]
       ins.state    = obj["Closed"] ? :closed : :open
       ins.price    = obj["Price"]
-      ins.uuid     = obj["Uuid"]
+      ins.uuid     = obj["OrderUuid"]
+      ins.market   = obj["Exchange"]
+      ins.type     = obj["OrderType"]
+      ins.limit    = obj["Limit"]
       ins.account  = account.to_struct
       
       ins.price_per_unit = obj["PricePerUnit"]
@@ -231,6 +238,17 @@ module Trex
       self.class.cancel self.account, self.uuid
     end
     
+    def pp
+      h = self.to_h
+      h.delete :account
+      h.keys.each do |k|
+        if h[k].is_a?(Float)
+          h[k] = h[k].trex_s(10)
+        end
+      end
+      JSON.pretty_generate h
+    end
+    
     def self.history account, struct: true
       obj = Trex.get({
         
@@ -245,13 +263,17 @@ module Trex
     
     def self.get_open account, struct: true
       obj = Trex.get({
-        
+        version: 1.1,
+        method:  :getopenorders,
+        api:     :market,
+        key:     account.key,
+        secret:  account.secret   
       })
       
       return obj unless struct
       
       obj.map do |o|
-        from_obj account,o
+        from_obj o, account: account
       end
     end
   
@@ -284,7 +306,7 @@ module Trex
       
       return obj unless struct
       
-      from_obj account, obj
+      from_obj obj, account: account
     end
   end  
   
@@ -295,7 +317,7 @@ module Trex
   end
   
   def self.open_orders key, secret, struct: true
-    Order.get_open(account(key,secret, true), struct: struct)
+    Order.get_open(account(key,secret, struct: true), struct: struct)
   end
   
   def self.order_history key, secret, struct: true

@@ -44,7 +44,11 @@ module Trex
       return uuid    
     end
     
-    def sell market, amt, rate, &b
+    def sell market,amt,rate,&b
+      self.class.sell self,market,amt,rate,&b
+    end
+    
+    def self.sell act, market, amt, rate, &b
       if Trex.env[:simulate]
         b.call Order.new({
           "Quantity"     => amt,
@@ -53,7 +57,26 @@ module Trex
           "Closed"       => true,
           "Uuid"         => Time.now.to_f
         })
+      else
+        uuid = Trex.get({
+          key:     act.key,
+          secret:  act.secret,
+          version: 1.1,
+          api:     :market,
+          method:  :selllimit,
+          query:   {
+            quantity: (amt),
+            rate:     rate,
+            market:   market
+          }
+        })
+        
+        Trex::Order.on_fill[uuid] = b if b      
       end
+    end
+    
+    def orders
+      Trex.open_orders self.key, self.secret
     end
     
     def cancel uuid
@@ -67,6 +90,16 @@ module Trex
       
       def usd amount = self.amount
         Trex.usd coin,amount
+      end
+      
+      def rate base=:BTC
+        b=base
+        c=coin
+        
+        Trex.btc(coin,1)
+      rescue => e
+        p e
+        0.0
       end
       
       def self.from_obj obj
@@ -113,7 +146,7 @@ module Trex
     end
     
     def to_struct
-      self.class.Struct.new key,secret
+      self.class::Struct.new key,secret
     end
     
     self::Struct = ::Struct.new(:key, :secret) do

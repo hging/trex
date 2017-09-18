@@ -88,10 +88,21 @@ module Trex
   
   def self.btc coin, amt
     return amt if coin.to_s.upcase == "BTC"
-    amt * env[:rates]["BTC-#{coin.to_s.upcase}"]
+
+    if coin.to_s.upcase == "USDT"
+      return amt / env[:rates][market="USDT-BTC"]
+    end
+    
+    rate = env[:rates][market="BTC-#{coin.to_s.upcase}"]
+    if !rate
+      Trex.ticker market
+      rate = env[:rates][market]
+    end
+    amt * rate
   end
   
   def self.usd coin=nil, amt=1, market: nil
+    return amt if coin.to_s.upcase == "USDT"
     coin = market.split("-")[1] if market
     self.btc(coin,amt) * btc_usd
   end
@@ -112,7 +123,24 @@ module Trex
   end  
 end
 
-Trex.env[:cloud_flare] = ARGV.index("--trex-cloud-flare-bypass")
+Trex.env[:cloud_flare]   = ARGV.index("--trex-cloud-flare-bypass")
+Trex.env[:socket_log]    = ARGV.index("--trex-socket-log")
+Trex.env[:socket_replay] = ARGV.index("--trex-socket-replay")
+Trex.env[:simulate]      = ARGV.index("--trex-simulate")
+
+ARGV.find do |a| break if a=~/\-\-account\-file\=(.*)/ end
+if account_file = $1
+  Trex.env[:account]       = Trex::Account.new(*JSON.parse(open(account_file).read))
+end
+
+ARGV.find do |a| break if a=~/\-\-account\-key\=(.*)/ end
+if key = $1
+  ARGV.find do |a| break if a=~/\-\-account\-secret\=(.*)/ end
+  if secret = $1
+    Trex.env[:account]       = Trex::Account.new(key,secret) 
+  end
+end
+
 
 if __FILE__ == $0
   Trex.run do

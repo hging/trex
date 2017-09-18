@@ -1,0 +1,63 @@
+#!/usr/bin/env ruby
+
+require 'trex'
+require 'grio/dsl'
+
+raise unless account=Trex.env[:account]
+
+ARGV.find do |a| break if a=~/\-\-cancel\=(.*)/ end
+if uuid = $1
+  account.cancel uuid
+  exit
+end
+
+ARGV.find do |a| break if a=~/\-\-status\=(.*)/ end
+if uuid = $1
+  puts Trex::Order.get(account, uuid).pp
+  exit
+end
+
+
+ARGV.find do |a| break if a=~/\-\-market\=(.*)/ end
+if market = $1
+  base,coin = account.balance(market.split("-")[0]), account.balance(market.split("-")[1])
+  
+  ARGV.find do |a| break if a=~/\-\-rate\=(.*)/ end
+  rate = $1
+  
+  ARGV.find do |a| break if a=~/\-\-amount\=(.*)/ end
+  amt = $1  
+  
+  raise unless rate
+  raise unless amt
+  
+  tick = Trex.ticker market
+  
+  p tick
+  p rate
+  
+  if ["last","ask","bid"].index(rate)
+    rate = tick.send(rate.to_sym)
+  else
+    rate = rate.to_f
+  end  
+
+  if ARGV.index "--sell"
+    if amt == "all" or amt == "-1"
+      amt = coin.avail
+    else
+      amt=amt.to_f
+    end
+  
+    account.sell market, amt, rate
+  elsif ARGV.index "--buy"
+    if amt == "all" or amt == "-1"
+      amt = base.avail
+    else
+      amt=amt.to_f
+    end
+  
+    uuid = account.buy market, amt, rate
+    puts uuid
+  end
+end

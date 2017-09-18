@@ -1,0 +1,83 @@
+#!/usr/bin/env ruby
+
+require 'trex'
+require 'grio/dsl'
+require 'trex/socket_api' if ARGV.index "--socket"
+
+Trex.init
+
+raise unless account=Trex.env[:account]
+
+def get_balances account,watching=[]
+  return(account.balances.find_all do |bal|
+    bal.amount > 0 or watching.index(bal.coin)
+  end)
+end
+
+def print_balances balances
+  puts "COIN".ljust(6)+"      Amount".ljust(16)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD"
+  puts "-"*100
+  tu=0
+  tb=0
+
+  balances.each do |bal|
+    tb += (b = bal.btc)
+    tu += (u = bal.usd)
+  
+    puts "#{bal.coin.to_s.ljust(5)} #{bal.amount.trex_s.rjust(16)} #{bal.avail.trex_s.rjust(16)} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10)} #{(Trex.btc_usd * rt).trex_s(3).rjust(10)}" 
+  end
+  puts "".ljust(100,"-")
+  puts "BTC:  #{tb.trex_s.rjust(16)} USD: #{tu.trex_s(3).rjust(10)}"
+end
+
+print_balances balances=get_balances(account,watching=[])
+puts "$>: "
+
+print "\033[1A"  
+print "\r"
+
+require 'readline'
+
+cl = prompt='$>: '
+
+
+if ARGV.index "--socket"
+  Trex.run do
+    Trex.stream do |s|
+      Trex.idle do
+        if line = Readline.readline(prompt, true)
+          cmd, *args = line.split(" ")
+          
+          case cmd
+          when 'watch'
+            coin = args[0].to_s.upcase.to_sym
+          
+            balances << account.balance(coin)
+            watching << coin
+          end
+          
+          cl = ""
+          print "\033[1A"          
+          print "\r                                          "
+        end
+        true
+      end
+
+      Trex.timeout 10000 do
+        balances = get_balances account,watching
+        true
+      end
+    
+      Trex.timeout 100 do
+        (balances.length+4).times do 
+          print "\033[1A"          
+          print "\r"
+        end
+        print_balances balances
+        print "\r"
+        #puts Trex::JSONApi.rate
+        true
+      end
+    end
+  end
+end
