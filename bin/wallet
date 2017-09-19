@@ -2,7 +2,11 @@
 
 require 'trex'
 require 'grio/dsl'
-require 'trex/socket_api' if ARGV.index "--socket"
+
+if ARGV.index "--socket"
+  require 'trex/socket_api' 
+  require 'readline'
+end
 
 Trex.init
 
@@ -14,8 +18,46 @@ def get_balances account,watching=[]
   end)
 end
 
+class Colourize
+  FG_NORMAL = -1
+  BG_NORMAL = -1
+  
+  COLORS = [
+    0,1,2,3,4,5,6,7,9
+  ]
+  
+  def self.generate str, fcol=FG_NORMAL, bcol=BG_NORMAL
+    bcol = 9 if bcol == -1
+    bcol = bcol + 40 if bcol <= 9
+    
+    fcol = 9 if fcol == -1
+    fcol = fcol + 40 if fcol <= 9    
+    
+    "\e[#{fcol};#{bcol}m"+str+"\e[0m"  
+  end
+  
+  def self.case str, truth, aset, bset = [-1,-1], &b
+    if truth
+      return generate str,*aset
+    end
+    
+    generate str, *bset
+  end
+end
+
+class String
+  def colourize? truth, aset, bset=[-1,-1]
+    Colourize.case self, truth, aset, bset
+  end
+  
+  def colourize fg,bg=-1
+    Colourize.generate self,fg,bg
+  end
+end
+
+
 def print_balances balances
-  puts "COIN".ljust(6)+"      Amount".ljust(16)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD"
+  puts "COIN".ljust(6)+"      Amount".ljust(16)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD".colourize(4,4)
   puts "-"*100
   tu=0
   tb=0
@@ -24,42 +66,38 @@ def print_balances balances
     tb += (b = bal.btc)
     tu += (u = bal.usd)
   
-    puts "#{bal.coin.to_s.ljust(5)} #{bal.amount.trex_s.rjust(16)} #{bal.avail.trex_s.rjust(16)} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10)} #{(Trex.btc_usd * rt).trex_s(3).rjust(10)}" 
+    puts "#{bal.coin.to_s.ljust(5)} #{bal.amount.trex_s.rjust(16)} #{bal.avail.trex_s.rjust(16)} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [-1, 2], [-1, 1])} #{(Trex.btc_usd * rt).trex_s(3).rjust(10)}" 
   end
   puts "".ljust(100,"-")
   puts "BTC:  #{tb.trex_s.rjust(16)} USD: #{tu.trex_s(3).rjust(10)}"
 end
 
 print_balances balances=get_balances(account,watching=[])
-puts "$>: "
-
-print "\033[1A"  
-print "\r"
-
-require 'readline'
-
-cl = prompt='$>: '
-
 
 if ARGV.index "--socket"
+  print "TRXSH:> "
   Trex.run do
-    Trex.stream do |s|
+    Trex.stream do |s|#.summaries(*balances.map do |bal| "BTC-#{bal.coin}" end) do
+    
       Trex.idle do
-        if line = Readline.readline(prompt, true)
+        grio.read_nonblock do |line|
           cmd, *args = line.split(" ")
           
           case cmd
           when 'watch'
             coin = args[0].to_s.upcase.to_sym
           
-            balances << account.balance(coin)
-            watching << coin
+            balances << account.balance(coin) unless balances.find do |bal| bal.coin == coin end
+            watching << coin                  unless watching.index(coin)
           end
           
-          cl = ""
           print "\033[1A"          
-          print "\r                                          "
+          print "\r#{"TRXSH:> "}#{(" "*line.length)}"
+          line.length.times do 
+            print "\b"
+          end
         end
+        
         true
       end
 
@@ -69,13 +107,15 @@ if ARGV.index "--socket"
       end
     
       Trex.timeout 100 do
+        print "\033[s" 
         (balances.length+4).times do 
           print "\033[1A"          
           print "\r"
         end
+
         print_balances balances
-        print "\r"
-        #puts Trex::JSONApi.rate
+        print "\033[u" 
+
         true
       end
     end

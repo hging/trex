@@ -98,6 +98,7 @@ module Trex
       Trex.ticker market
       rate = env[:rates][market]
     end
+
     amt * rate
   end
   
@@ -107,9 +108,37 @@ module Trex
     self.btc(coin,amt) * btc_usd
   end
   
+  def self.update_candle s
+    prev = Trex.env[:rates][market = s[:MarketName]]
+    Trex.env[:rates][market] = rate = s[:Last]
+    Trex.env[:open][market] = rate if !Trex.env[:open][market]
+    (Trex.env[:prev] ||= {})[market] = prev unless prev == rate
+    (Trex.env[:high] ||= {})[market] = rate if rate > Trex.env[:high][market].to_f
+    (Trex.env[:low] ||= {})[market] = rate if rate < Trex.env[:low][market].to_f    
+  end
+  
+  def self.candle market
+    hi    = Trex.env[:high][market]  || 0.0
+    low   = Trex.env[:low][market]   || 0.0
+    open  = Trex.env[:open][market]  || 0.0
+    close = Trex.env[:close][market] || 0.0
+    prev  = Trex.env[:prev][market]  || 0.0   
+    
+    Struct.new(:high,:low,:close,:open, :prev) do
+      def rate
+        close
+      end
+    end.new(hi,low,close,open, prev)
+  end
+  
   private
   def self.init
     if !@init
+      env[:high]  ||= {}
+      env[:low]   ||= {}
+      env[:close] ||= {}
+      env[:open]  ||= {}
+      env[:prev]  ||= {}
       env[:rates] ||= {}
       ticker "USDT-BTC"
       sleep 0.333

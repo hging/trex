@@ -126,7 +126,10 @@ module Trex
         }
       })
       
-      (Trex.env[:rates] ||= {})[market] = obj["Last"] unless Trex.env[:streaming_rates]
+      obj[:MarketName] = market
+      obj[:Last]       = obj["Last"]
+      
+      Trex.update_candle obj # unless Trex.env[:streaming_rates]
       
       return obj unless struct
       

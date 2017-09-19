@@ -219,6 +219,8 @@ module Trex
     end
     
     def self.extended ins
+      super
+      
       ins.on :message do |e|
         puts e.data if ARGV.index("--trex-debug-socket-messages")
       
@@ -462,8 +464,6 @@ module Trex
       singleton.summaries *markets do |state|
         market = state[:MarketName]
         
-        (Trex.env[:rates] ||= {})[market] = state[:Last]
-        
         state = Summary.from_obj if struct
         
         cb.call market, state
@@ -482,7 +482,7 @@ module Trex
         Trex.env[:streaming_rates] = true
         
         s.on :update_summary_state do |s|
-          Trex.env[:rates][market = s[:MarketName]] = s[:Last]
+          Trex.update_candle s
           
           if s 
             lta = (Trex.env[:last_n_ticks][market = s[:MarketName]] ||= [])
@@ -549,6 +549,8 @@ module Trex
           
           super
         end
+        
+        s
       end  
     end
     
@@ -570,7 +572,7 @@ module Trex
   end
   
   def self.stream &b
-    b.call socket.singleton
+    b.call Trex::Socket.singleton
   end
 end
 
