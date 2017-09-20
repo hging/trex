@@ -198,8 +198,6 @@ module Trex
     def self.from_obj obj, account: nil
       ins = new
       
-      p obj
-      
       ins.quantity = obj["Quantity"]
       ins.state    = obj["Closed"] ? :closed : :open
       ins.price    = obj["Price"]

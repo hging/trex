@@ -444,7 +444,7 @@ module Trex
     def self.add_book_watch *markets, struct: true, &cb
       singleton.order_books *markets do |state|
         market = state[:MarketName]
-        
+         
         if struct
           if book = @books[market]
           else
@@ -452,6 +452,8 @@ module Trex
           end
         
           book.update state
+        
+          Trex.env[:rates][market] = (book.low_ask + book.high_bid) / 2 if book.low_ask and book.high_bid
         
           cb.call book, market, state
         else

@@ -5,6 +5,13 @@ require 'grio/dsl'
 
 raise unless account=Trex.env[:account]
 
+if ARGV.index("--open")
+  account.orders.each do |o|
+   puts o.pp
+  end
+  exit
+end
+
 ARGV.find do |a| break if a=~/\-\-cancel\=(.*)/ end
 if uuid = $1
   account.cancel uuid
@@ -33,11 +40,10 @@ if market = $1
   
   tick = Trex.ticker market
   
-  p tick
-  p rate
-  
   if ["last","ask","bid"].index(rate)
     rate = tick.send(rate.to_sym)
+  elsif rate == "diff"
+    rate = (tick.ask + tick.bid) / 2
   else
     rate = rate.to_f
   end  
@@ -45,14 +51,19 @@ if market = $1
   if ARGV.index "--sell"
     if amt == "all" or amt == "-1"
       amt = coin.avail
+    elsif amt =~ /\-([0-9]+)\.([0-9]+)/
+      amt = coin.avail * ("#{$1}.#{$2}").to_f
     else
       amt=amt.to_f
     end
   
-    account.sell market, amt, rate
+    uuid = account.sell market, amt, rate
+    puts uuid    
   elsif ARGV.index "--buy"
     if amt == "all" or amt == "-1"
       amt = base.avail
+    elsif amt =~ /\-([0-9]+)\.([0-9]+)/
+      amt = coin.avail * ("#{$1}.#{$2}").to_f
     else
       amt=amt.to_f
     end

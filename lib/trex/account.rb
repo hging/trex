@@ -55,8 +55,10 @@ module Trex
           "PricePerUnit" => rate,
           "Price"        => (amt*rate)*0.9975,
           "Closed"       => true,
-          "Uuid"         => Time.now.to_f
+          "Uuid"         => uuid=Time.now.to_f
         })
+        
+        return uuid
       else
         uuid = Trex.get({
           key:     act.key,
@@ -72,6 +74,8 @@ module Trex
         })
         
         Trex::Order.on_fill[uuid] = b if b      
+        
+        return uuid
       end
     end
     

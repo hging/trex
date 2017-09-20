@@ -7,7 +7,7 @@ begin
   require 'grio'
 
   begin
-    require 'trex/socket_api'  
+    require 'trex/socket_api'  if ARGV.index "--trex-socket"
   rescue LoadError
   end
 rescue LoadError
@@ -109,12 +109,12 @@ module Trex
   end
   
   def self.update_candle s
-    prev = Trex.env[:rates][market = s[:MarketName]]
+    prev = (Trex.env[:rates] ||= {})[market = s[:MarketName]]
     Trex.env[:rates][market] = rate = s[:Last]
-    Trex.env[:open][market] = rate if !Trex.env[:open][market]
+    (Trex.env[:open] ||= {})[market] = rate if !(Trex.env[:open] ||= {})[market]
     (Trex.env[:prev] ||= {})[market] = prev unless prev == rate
-    (Trex.env[:high] ||= {})[market] = rate if rate > Trex.env[:high][market].to_f
-    (Trex.env[:low] ||= {})[market] = rate if rate < Trex.env[:low][market].to_f    
+    (Trex.env[:high] ||= {})[market] = rate if rate > (Trex.env[:high] ||= {})[market].to_f
+    (Trex.env[:low]  ||= {})[market] = rate if rate < (Trex.env[:low] ||= {})[market].to_f    
   end
   
   def self.candle market
