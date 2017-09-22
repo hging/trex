@@ -147,7 +147,7 @@ end
 
 $message = "Messages:".colourize(7,4)
 def message str=""
-  $screen[-1] = $message = "Messages:".colourize(7,4)+" #{str}"
+  $screen[-1] = $message = "Messages:".colourize(7,4)+" #{str.strip}"
 end
 
 def btc_usd bal
@@ -171,7 +171,7 @@ def print_balances balances
   
   $screen.puts "".ljust(100,"-")
   $screen.puts "BTC:".colourize(7)+" #{tb.trex_s.rjust(16)} #{"USD:".colourize(7)} #{tu.trex_s(3).rjust(10)}"
-  $screen.puts $message.to_s
+  $screen.puts "API_RATE: #{Trex::JSONApi.rate.trex_s(3)}, "+$message.to_s
 end
 
 print_balances balances=get_balances(account,watching=[])
