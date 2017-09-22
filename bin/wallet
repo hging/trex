@@ -8,6 +8,96 @@ if ARGV.index "--socket"
   require 'readline'
 end
 
+
+require 'readline'
+
+class Screen
+  attr_accessor :lines, :columns, :prompt, :on_input_cb
+  def initialize prompt: "", columns: 100
+    Thread.new do
+      while line = Readline.readline(@prompt=prompt, true)
+        if cb=@on_input_cb
+          cb.call line
+        end
+      end 
+    end
+
+    @lines   = 0
+    @columns = columns
+  end
+  
+  def on_input &b
+    @on_input_cb = b
+  end
+  
+  def add_line line
+    _puts line
+    self.lines += 1
+  end
+  
+  alias :_print :print
+  alias :_puts :puts
+  
+  def clear
+    clear_line -2 if prompt
+      
+    lines.times do
+      clear_line
+    end
+    @lines = 0
+  end
+
+  def update &b
+    clear
+    b.call self
+    append "#{@prompt} "+Readline.line_buffer.to_s    
+  end
+  
+  def append s
+    _print s
+  end
+  
+  def clear_line idx=0
+    idx = lines-1 if idx == -1
+    
+    _print "\033[#{idx+1}A" if idx >= 0
+    _print "\r"
+    _print " "*columns
+    _print "\b"*columns
+  end
+  
+  def replace idx, value
+    save
+    clear_line idx
+    _print value
+    restore
+  end
+  
+  def save 
+    print "\033[s"
+  end
+  
+  def restore
+    print "\033[u"
+  end
+  
+  def []= idx, value
+    return replace idx,value if idx < lines
+    add_line value
+  end
+  
+  def puts s
+    add_line s
+  end
+  
+  def print s
+    append s
+  end
+end
+
+$screen = Screen.new prompt: "TRXSH>: "
+
+
 Trex.init
 
 raise unless account=Trex.env[:account]
@@ -55,35 +145,44 @@ class String
   end
 end
 
+$message = "Messages:".colourize(7,4)
+def message str=""
+  $screen[-1] = $message = "Messages:".colourize(7,4)+" #{str}"
+end
+
+def btc_usd bal
+  return (u = bal.usd) unless $btc_rate_override
+  return $btc_rate_override.to_f*bal.btc
+end
 
 def print_balances balances
-  puts ("COIN".ljust(6)+"      Amount".ljust(17)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD").colourize(7)
-  puts "-"*100
+  $screen.puts ("COIN".ljust(6)+"      Amount".ljust(17)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD").colourize(7)
+  $screen.puts "-"*100
+  
   tu=0
   tb=0
 
   balances.each do |bal|
     tb += (b = bal.btc)*0.9975
-    tu += (u = bal.usd)*0.9975
+    tu += u=btc_usd(bal)*0.9975
   
-    puts "#{bal.coin.to_s.ljust(5)} #{bal.amount.trex_s.rjust(17)} #{bal.avail.trex_s.rjust(16).colourize?(bal.amount > bal.avail,[-1,1],[-1,-1])} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [0, 2], [0, 1])} #{(Trex.btc_usd * rt).trex_s(3).rjust(10)}" 
+    $screen.puts "#{bal.coin.to_s.ljust(5)} #{bal.amount.trex_s.rjust(17)} #{bal.avail.trex_s.rjust(16).colourize?(bal.amount.to_f > bal.avail.to_f,[-1,1],[-1,-1])} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [0, 2], [0, 1])} #{(Trex.btc_usd * rt).trex_s(3).rjust(10)}" 
   end
-  puts "".ljust(100,"-")
-  puts "BTC:".colourize(7)+" #{tb.trex_s.rjust(16)} #{"USD:".colourize(7)} #{tu.trex_s(3).rjust(10)}"
+  
+  $screen.puts "".ljust(100,"-")
+  $screen.puts "BTC:".colourize(7)+" #{tb.trex_s.rjust(16)} #{"USD:".colourize(7)} #{tu.trex_s(3).rjust(10)}"
+  $screen.puts $message.to_s
 end
 
 print_balances balances=get_balances(account,watching=[])
 
 if ARGV.index "--socket"
-  obl      = balances.length
-  print msg="Messages:".colourize(7,4)+"\n"
-  print "TRXSH:> "
+  lo=nil
   Trex.run do
     Trex.stream do |s|#.summaries(*balances.map do |bal| "BTC-#{bal.coin}" end) do
       Trex.socket.flash_watch(*balances.map do |bal| "BTC-#{bal.coin}" end) do end
     
-      Trex.idle do
-        grio.read_nonblock do |line|
+      $screen.on_input do |line|
           cmd, *args = line.split(" ")
           
           case cmd
@@ -102,57 +201,40 @@ if ARGV.index "--socket"
             market = "BTC-#{args[0].upcase}"
             rate   = args[1] || "diff"
             amount = args[2] || -1
-            msg="Messages:".colourize(7,4)+ " BUY Order "+lo=`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
+            message "BUY Order "+lo=`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
             begin
               lo = JSON.parse(lo)
-            rescue; end
+            rescue => e;message e.to_s; end
           when 'sell' 
             market = "BTC-#{args[0].upcase}"
             rate   = args[1] || Trex.env[:rates][market]
             amount = args[2] || -1
-            msg="Messages:".colourize(7,4)+" SELL Order "+lo=`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --sell`            
+            message "SELL Order "+lo=`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --sell`            
             begin
-              lo = JSON.parse(lo)
-            rescue; end
+              lo = JSON.parse(lo.strip)
+            rescue => e ;message e.to_s; end
           when "addr"
             coin = args[0]
-            msg = "Messages:".colourize(7,4)+" #{coin.upcase} Deposit Address: #{account.address(coin)}"
+            message "#{coin.upcase} Deposit Address: #{account.address(coin)}"
           when "eval"
-            msg = "Messages:".colourize(7,4)+" #{`ruby -e "p(#{args.join(' ')})"`}"
+            message "#{`ruby -e "p(#{args.join(' ')})"`}"
+          when "rate"
+            $btc_rate_override = args[0]
           end
           
-          print "\033[1A"          
-          print "\r#{"TRXSH:> "}#{(" "*line.length)}"
-          line.length.times do 
-            print "\b"
-          end
-        end
-        
-        true
+          $screen.clear_line -2
+          $screen.clear_line
       end
 
       Trex.timeout 10000 do
         balances = get_balances account,watching
-        obl      = balances.length
         true
       end
     
       Trex.timeout 100 do
-        print "\033[s" 
-        (obl+5).times do |i|
-          print "\033[1A"          
-          print "\r"+"#{" "*100}#{"\b"*100}"
+        $screen.update do
+          print_balances balances
         end
-
-        print_balances balances
-        print "#{" "*70}#{"\b"*70}"+msg
-        
-        unless obl == balances.length
-          print "\nTRXSH:> #{" "*70}#{"\b"*70}" 
-        end
-        
-        print "\033[u" unless obl != balances.length
-        obl = balances.length
         true
       end
     end

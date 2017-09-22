@@ -20,6 +20,12 @@ class Numeric
   end
 end
 
+class NilClass
+  def trex_s amt=10
+    "%.#{amt}f" % 0.0
+  end
+end
+
 module Trex
   VERSION = "0.0.1"
   

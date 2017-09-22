@@ -58,7 +58,7 @@ if market = $1
     end
   
     uuid = account.sell market, amt, rate
-    puts uuid    
+    puts uuid.to_json    
   elsif ARGV.index "--buy"
     if amt == "all" or amt == "-1"
       amt = base.avail
@@ -69,6 +69,6 @@ if market = $1
     end
   
     uuid = account.buy market, amt, rate
-    puts uuid
+    puts uuid.to_json
   end
 end

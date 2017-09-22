@@ -93,10 +93,12 @@ module Trex
     
     Balance = Struct.new(:amount, :avail, :coin, :address, :pending) do
       def btc amount = self.amount
+        return 0 if !amount or amount <= 0
         Trex.btc coin,amount
       end
       
-      def usd amount = self.amount
+      def usd amount = (self.amount ? self.amount : 0)
+        return 0 if !amount or amount <= 0
         Trex.usd coin,amount
       end
       
