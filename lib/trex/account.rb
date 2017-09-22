@@ -83,6 +83,10 @@ module Trex
       Trex.open_orders self.key, self.secret
     end
     
+    def address coin
+      Trex.address self.key,self.secret,coin.to_s.upcase
+    end
+    
     def cancel uuid
       Order.get(self, uuid).cancel
     end
@@ -162,5 +166,20 @@ module Trex
         self
       end
     end
+  end
+  
+  def self.address key,secret,currency
+    obj = Trex.get({
+      api:     :account,
+      version: 1.1,
+      method:  :getdepositaddress,
+      key:     key,
+      secret:  secret,
+      query:   {
+        currency: currency
+      }
+    })
+    
+    return obj["Address"]
   end
 end

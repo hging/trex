@@ -57,16 +57,16 @@ end
 
 
 def print_balances balances
-  puts ("COIN".ljust(6)+"      Amount".ljust(16)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD").colourize(7)
+  puts ("COIN".ljust(6)+"      Amount".ljust(17)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD").colourize(7)
   puts "-"*100
   tu=0
   tb=0
 
   balances.each do |bal|
-    tb += (b = bal.btc)
-    tu += (u = bal.usd)
+    tb += (b = bal.btc)*0.9975
+    tu += (u = bal.usd)*0.9975
   
-    puts "#{bal.coin.to_s.ljust(5)} #{bal.amount.trex_s.rjust(16)} #{bal.avail.trex_s.rjust(16).colourize?(bal.amount > bal.avail,[-1,1],[-1,-1])} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [0, 2], [0, 1])} #{(Trex.btc_usd * rt).trex_s(3).rjust(10)}" 
+    puts "#{bal.coin.to_s.ljust(5)} #{bal.amount.trex_s.rjust(17)} #{bal.avail.trex_s.rjust(16).colourize?(bal.amount > bal.avail,[-1,1],[-1,-1])} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [0, 2], [0, 1])} #{(Trex.btc_usd * rt).trex_s(3).rjust(10)}" 
   end
   puts "".ljust(100,"-")
   puts "BTC:".colourize(7)+" #{tb.trex_s.rjust(16)} #{"USD:".colourize(7)} #{tu.trex_s(3).rjust(10)}"
@@ -92,17 +92,33 @@ if ARGV.index "--socket"
           
             balances << account.balance(coin) unless balances.find do |bal| bal.coin == coin end
             watching << coin                  unless watching.index(coin)
+          when "cancel"
+            if !args[0] and lo and lo["uuid"]
+              `ruby bin/order --cancel='#{lo["uuid"]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
+            elsif args[0]
+              `ruby bin/order --cancel='#{args[0]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
+            end
           when 'buy' 
             market = "BTC-#{args[0].upcase}"
             rate   = args[1] || "diff"
             amount = args[2] || -1
-            msg="Messages:".colourize(7,4)+ " BUY Order"+`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
-            
+            msg="Messages:".colourize(7,4)+ " BUY Order "+lo=`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
+            begin
+              lo = JSON.parse(lo)
+            rescue; end
           when 'sell' 
             market = "BTC-#{args[0].upcase}"
             rate   = args[1] || Trex.env[:rates][market]
             amount = args[2] || -1
-            msg="Messages:".colourize(7,4)+" SELL Order"+`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --sell`            
+            msg="Messages:".colourize(7,4)+" SELL Order "+lo=`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --sell`            
+            begin
+              lo = JSON.parse(lo)
+            rescue; end
+          when "addr"
+            coin = args[0]
+            msg = "Messages:".colourize(7,4)+" #{coin.upcase} Deposit Address: #{account.address(coin)}"
+          when "eval"
+            msg = "Messages:".colourize(7,4)+" #{`ruby -e "p(#{args.join(' ')})"`}"
           end
           
           print "\033[1A"          
@@ -125,12 +141,16 @@ if ARGV.index "--socket"
         print "\033[s" 
         (obl+5).times do |i|
           print "\033[1A"          
-          print "\r"
+          print "\r"+"#{" "*100}#{"\b"*100}"
         end
 
         print_balances balances
-        print msg
-        print "TRXSH:> "
+        print "#{" "*70}#{"\b"*70}"+msg
+        
+        unless obl == balances.length
+          print "\nTRXSH:> #{" "*70}#{"\b"*70}" 
+        end
+        
         print "\033[u" unless obl != balances.length
         obl = balances.length
         true
