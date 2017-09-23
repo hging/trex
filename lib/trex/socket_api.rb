@@ -436,6 +436,10 @@ module Trex
       singleton
     end  
     
+    def self.books
+      @books
+    end
+    
     private
     def self.connect &b
       SocketAPI.connect &b 
@@ -452,7 +456,7 @@ module Trex
           end
         
           book.update state
-        
+          
           Trex.env[:rates][market] = (book.low_ask + book.high_bid) / 2 if book.low_ask and book.high_bid
         
           cb.call book, market, state

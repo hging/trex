@@ -50,7 +50,11 @@ class Screen
   def update &b
     clear
     b.call self
-    append "#{@prompt} "+Readline.line_buffer.to_s    
+    append "#{@prompt} "+(buff=Readline.line_buffer.to_s)
+    point = Readline.point
+    (buff.length-point).times do
+      print "\b"
+    end
   end
   
   def append s
@@ -95,19 +99,6 @@ class Screen
   end
 end
 
-$screen = Screen.new prompt: "TRXSH>: "
-
-
-Trex.init
-
-raise unless account=Trex.env[:account]
-
-def get_balances account,watching=[]
-  return(account.balances.find_all do |bal|
-    bal.amount > 0 or watching.index(bal.coin.to_s.upcase.to_sym)
-  end)
-end
-
 class Colourize
   FG_NORMAL = -1
   BG_NORMAL = -1
@@ -116,12 +107,14 @@ class Colourize
     0,1,2,3,4,5,6,7,9
   ]
   
-  def self.generate str, fcol=FG_NORMAL, bcol=BG_NORMAL
+  def self.generate str, fcol=FG_NORMAL, bcol=BG_NORMAL, bold: false
     bcol = 9 if bcol == -1
     bcol = bcol + 40 if bcol <= 9
     
     fcol = 9 if fcol == -1
     fcol = fcol + 30 if fcol <= 9    
+    
+    bcol = 1 if bold
     
     "\e[#{fcol};#{bcol}m"+str+"\e[0m"  
   end
@@ -140,9 +133,22 @@ class String
     Colourize.case self, truth, aset, bset
   end
   
-  def colourize fg,bg=-1
-    Colourize.generate self,fg,bg
+  def colourize fg,bg=-1, bold: false
+    Colourize.generate self,fg,bg, bold: bold
   end
+end
+
+$screen = Screen.new prompt: "TRXSH>: ".colourize(-1,bold: true)
+
+
+Trex.init
+
+raise unless account=Trex.env[:account]
+
+def get_balances account,watching=[]
+  return(account.balances.find_all do |bal|
+    bal.amount > 0 or watching.index(bal.coin.to_s.upcase.to_sym)
+  end)
 end
 
 $message = "Messages:".colourize(7,4)
@@ -150,13 +156,50 @@ def message str=""
   $screen[-1] = $message = "Messages:".colourize(7,4)+" #{str.strip}"
 end
 
-def btc_usd bal
+$gdax = {}
+
+def update_gdax
+  $enable_gdax = true
+  Thread.new do
+    begin
+    loop do
+      [:LTC, :ETH, :BTC].each do |coin|
+        obj = JSON.parse(open("https://api.gdax.com/products/#{coin}-USD/ticker").read)
+        $gdax[coin] = obj["price"].to_f
+      end
+      sleep 1.1
+    end
+    rescue => e
+      message e.to_s
+    end
+  end
+end
+
+update_gdax if ARGV.index("--gdax-rates") or ARGV.index("--enable-gdax-rates")
+$btc_rate_override = "gdax" if ARGV.index("--gdax-rates")
+
+
+def usd bal = nil
+  if !bal
+    return $gdax[:BTC] if $gdax[:BTC] and $btc_rate_override == "gdax"
+    return  $btc_rate_override.to_f if $btc_rate_override and  $btc_rate_override != "gdax"
+    return Trex.btc_usd  
+  end
+  
+  if $btc_rate_override == "gdax" and $gdax[bal.coin]
+    return $gdax[bal.coin] * bal.btc if $gdax[bal.coin]
+    return bal.usd
+  end
+  
+  return $gdax[:BTC]*bal.btc if $btc_rate_override == "gdax" and $gdax[:BTC]
+  
   return (u = bal.usd) unless $btc_rate_override
+  
   return $btc_rate_override.to_f*bal.btc
 end
 
 def print_balances balances
-  $screen.puts ("COIN".ljust(6)+"      Amount".ljust(17)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD").colourize(7)
+  $screen.puts ("COIN".ljust(6)+"      Amount".ljust(17)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD").colourize(-1, bold: true)
   $screen.puts "-"*100
   
   tu=0
@@ -164,17 +207,20 @@ def print_balances balances
 
   balances.each do |bal|
     tb += (b = bal.btc)*0.9975
-    tu += u=btc_usd(bal)*0.9975
+    tu += u=usd(bal)*0.9975
   
-    $screen.puts "#{bal.coin.to_s.ljust(5)} #{bal.amount.trex_s.rjust(17)} #{bal.avail.trex_s.rjust(16).colourize?(bal.amount.to_f > bal.avail.to_f,[-1,1],[-1,-1])} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [0, 2], [0, 1])} #{(Trex.btc_usd * rt).trex_s(3).rjust(10)}" 
+    $screen.puts "#{bal.coin.to_s.ljust(5).colourize(-1, bold: true)} #{bal.amount.trex_s.rjust(17)} #{bal.avail.trex_s.rjust(16).colourize?(bal.amount.to_f > bal.avail.to_f,[-1,1],[-1,-1])} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [0, 2], [0, 1])} #{(usd() * rt).trex_s(3).rjust(10)}" 
   end
   
   $screen.puts "".ljust(100,"-")
-  $screen.puts "BTC:".colourize(7)+" #{tb.trex_s.rjust(16)} #{"USD:".colourize(7)} #{tu.trex_s(3).rjust(10)}"
+  $screen.puts "BTC:".colourize(-1, bold: true)+" #{tb.trex_s.rjust(16)} #{"USD:".colourize(-1, bold: true)} #{tu.trex_s(3).rjust(10)}"
   $screen.puts "API_RATE: #{Trex::JSONApi.rate.trex_s(3)}, "+$message.to_s
 end
 
-print_balances balances=get_balances(account,watching=[])
+balances = []; watching = []
+$screen.update do
+  print_balances balances=get_balances(account,watching=[])
+end
 
 if ARGV.index "--socket"
   lo=nil
@@ -194,6 +240,10 @@ if ARGV.index "--socket"
           when "cancel"
             if !args[0] and lo and lo["uuid"]
               `ruby bin/order --cancel='#{lo["uuid"]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
+            elsif args[0] == "all"
+              `ruby bin/order --cancel=all #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
+            elsif args[0] == "market"
+              `ruby bin/order --cancel=true --market='#{args[1]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
             elsif args[0]
               `ruby bin/order --cancel='#{args[0]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
             end
@@ -207,7 +257,7 @@ if ARGV.index "--socket"
             rescue => e;message e.to_s; end
           when 'sell' 
             market = "BTC-#{args[0].upcase}"
-            rate   = args[1] || Trex.env[:rates][market]
+            rate   = args[1] || "diff"
             amount = args[2] || -1
             message "SELL Order "+lo=`ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --sell`            
             begin
@@ -219,7 +269,41 @@ if ARGV.index "--socket"
           when "eval"
             message "#{`ruby -e "p(#{args.join(' ')})"`}"
           when "rate"
+            if args[0] == "gdax"
+              update_gdax unless $enable_gdax
+              message "Rate: Using GDAX for USD conversion" 
+            end
+            message "Rate: using bittrex market data" if !args[0]
             $btc_rate_override = args[0]
+          when "uuid"
+            if lo and uuid=lo["uuid"]
+              message "Laster Order UUID: #{uuid}"
+            else 
+              message "UUID: No Orders this Session"
+            end
+          when "nonzero"
+            balances.find_all do |bal| watching.index bal.coin end.each do |bal| balances.delete bal end
+            watching = []
+          when "stash"
+            target = args[0] || :USDT
+          
+            get_balances(account,[]).each do |bal|
+              next if bal.coin == :BTC
+              next if bal.coin == target
+              
+              market = "BTC-#{bal.coin}"
+              `ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=diff --amount=-1 --sell`
+            end
+            
+            Trex.idle do
+              list = balances.map do |bal| bal.coin end.sort
+              if list == [:BTC, target].sort or list == [:BTC]
+                `ruby bin/order #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=USDT-BTC --rate=diff --amount=-1 --sell`
+                next false
+              else
+                next true
+              end
+            end
           end
           
           $screen.clear_line -2
