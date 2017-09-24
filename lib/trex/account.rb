@@ -6,6 +6,14 @@ module Trex
       @secret = secret
     end
     
+    def withdraw coin, amt, addr
+      Trex.withdraw self.key, self.secret, coin,amt,addr
+    end
+    
+    def withdraw! coin, addr
+      Trex.withdraw self.key, self.secret, coin, balance(coin).avail, addr
+    end
+    
     def buy market, amt, rate, &b
       self.class.buy self, market,amt, rate,&b
     end
@@ -89,6 +97,10 @@ module Trex
     
     def cancel uuid
       Order.get(self, uuid).cancel
+    end
+    
+    def withdrawals coin=nil
+      Trex.withdrawal_history self.key,self.secret, coin
     end
     
     Balance = Struct.new(:amount, :avail, :coin, :address, :pending) do
@@ -183,5 +195,42 @@ module Trex
     })
     
     return obj["Address"]
+  end
+  
+  Withdrawal = Struct.new(:amount,:address,:txid,:uuid,:cost,:currency,:invalid_addr,:pending,:opened,:cancelled) do
+    def self.from_obj obj
+      self.new(obj["Amount"],obj["Address"],obj["TxId"],obj["PaymentUuid"],obj["TxCost"],obj["Currency"],obj["InvalidAddress"],obj["PendingPayment"],obj["Opened"],obj["Cancelled"])
+    end
+  end
+  
+  def self.withdrawal_history key, secret, coin=nil, struct: true
+    obj = Trex.get({
+      api:     :account,
+      version: 1.1,
+      method: :getwithdrawalhistory,
+      key:    key,
+      secret: secret
+    })
+    
+    return obj unless struct
+    
+    obj.map do |w|
+      Withdrawal.from_obj(w)
+    end
+  end
+  
+  def self.withdraw key, secret, coin, amount, address, comment=nil
+    obj = Trex.get({
+      api:     :account,
+      version: 1.1,
+      method: :withdraw,
+      key:    key,
+      secret: secret,
+      query:  {
+        currency: coin,
+        quantity: amount,
+        address:  address
+      }
+    })
   end
 end

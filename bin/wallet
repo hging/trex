@@ -269,6 +269,19 @@ def print_balances balances
   $screen.puts "API_RATE: #{Trex::JSONApi.rate.trex_s(3)}, "+$message.to_s
 end
 
+$wallets = {}
+if ARGV.find do |a| a=~/\-\-wallets\=(.*)/ end
+  obj = {}
+  
+  begin
+    obj = JSON.parse(File.open(File.expand_path($1)).read)
+  rescue => e
+    message(e.to_s)
+  end
+  
+  $wallets = obj
+end
+
 balances = []; watching = []
 $screen.update do
   print_balances balances=get_balances(account,watching=[])
@@ -372,6 +385,40 @@ if ARGV.index "--socket"
           when "nonzero"
             balances.find_all do |bal| watching.index bal.coin end.each do |bal| balances.delete bal end
             watching = []
+          when "withdrawals"
+            begin
+              message(account.withdrawals(args[0] ? args[0].upcase.to_sym : nil).map do |w|
+                "#{w.currency} #{w.amount} #{w.txid} #{w.pending}"
+              end.join("\n"))
+            rescue => e
+              message(e.to_s)
+            end
+          when "withdraw"
+            group = $wallets[args[0]]
+            coin  = args[1].upcase.to_s.to_sym
+            if args[1] and addr = group[coin.to_s]
+              if !args[2]
+                begin
+                  message(account.withdraw!(coin, addr)["uuid"])
+                rescue => e
+                  message(e.to_s)
+                end
+              elsif amt=args[2]
+                begin
+                  amt = Float(amt)
+                  message(account.withdraw(coin, amt , addr)["uuid"]) 
+                rescue => e
+                  message(e.to_s)
+                end
+              end
+            elsif coin
+              begin
+                amt = Float(args[2])
+                account.withdraw(coin, amt , args[0]) 
+              rescue => e
+                message(e.to_s)
+              end
+            end
           when "stash"
             target = args[0] || :USDT
           
