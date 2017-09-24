@@ -79,7 +79,7 @@ module Trex
       end
     end
     
-    def orders
+    def orders market=nil
       Trex.open_orders self.key, self.secret
     end
     
