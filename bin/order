@@ -63,7 +63,7 @@ if market = $1
     if amt == "all" or amt == "-1"
       amt = base.avail
     elsif amt =~ /\-([0-9]+)\.([0-9]+)/
-      amt = coin.avail * ("#{$1}.#{$2}").to_f
+      amt = base.avail * ("#{$1}.#{$2}").to_f
     else
       amt=amt.to_f
     end

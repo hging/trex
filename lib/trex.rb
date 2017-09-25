@@ -88,6 +88,14 @@ module Trex
     File.join(basedir,"data")
   end
   
+  def self.vendor_dir
+    File.join(basedir,"vendor")
+  end  
+  
+  def self.bin_dir
+    File.join(basedir,"bin")
+  end    
+  
   def self.btc_usd
     env[:rates]["USDT-BTC"]
   end

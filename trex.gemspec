@@ -6,7 +6,7 @@ Gem::Specification.new do |s|
   s.description = ""
   s.authors     = ["ppibburr"]
   s.email       = 'tulnor33@gmail.com'
-  s.files       = ["lib/trex.rb","lib/trex/json_api.rb", "lib/trex/account.rb", "lib/trex/socket_api.rb", "data/get_cookies.js"]
+  s.files       = ["lib/trex.rb","lib/trex/json_api.rb", "lib/trex/account.rb", "lib/trex/socket_api.rb", "data/get_cookies.js"].push(*Dir.glob('vendor/**/*')).push(*Dir.glob('bin/**/*'))
   s.homepage    = 'http://github.com/ppibburr/trex'
   s.license       = 'MIT'
 end
