@@ -60,10 +60,17 @@ class Wallet
   def execute cmd, *args
     case cmd.to_s
     when 'watch'
-      coin = args[0].to_s.upcase.to_sym
+      if args[0] != "open"
+        coin = args[0].to_s.upcase.to_sym
     
-      balances << account.balance(coin) unless balances.find do |bal| bal.coin == coin end
-      watching << coin                  unless watching.index(coin)
+        balances << account.balance(coin) unless balances.find do |bal| bal.coin == coin end
+        watching << coin                  unless watching.index(coin)
+      else
+        execute "open"
+        oa.each do |o|
+          execute "watch", o.market.split("-")[1]
+        end
+      end
     when "cancel"
       if !args[0] and lo and lo["uuid"]
         `#{order_exe} --cancel='#{lo["uuid"]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
@@ -187,11 +194,21 @@ class Wallet
         @msg_buff.split("\n").each do |l| screen.puts l end
       elsif what == "eval"
         @eval_mode = true
+      elsif what == "addr"
+        @update = false
+        screen.clear
+        execute what, *args[1..-1]
+      elsif what == "halt"
+        @update = false
       end
     end
+  rescue => e
+    message e.to_s
   end
   
   def repeat coin, buyin, target, amt=nil
+    coin = coin.to_s.upcase.to_sym
+    
     execute "watch", coin.to_s
     execute "watch", "BTC"
     
@@ -199,61 +216,55 @@ class Wallet
     target = target.to_f
     amt    = amt.to_f    if amt
     
-    bought  = nil
-    did_buy = false
-    sold    = false
-    go      = true
-    avail = nil
-    g = nil
+    amt = nil if amt == -1
     
-    Trex.idle do
-      if cb = balances.find do |b| b.coin.to_s == coin.to_s.upcase end
-        bb = balances.find do |b| b.coin == :BTC end
-        
-        la    = avail
-        avail = cb.avail
-        
-        did_buy = bought = cb.avail >= (amt*0.9975) / buyin if amt and !bought
-        go      = !bought and sold 
-        
-        if did_buy and cb.avail != cb.amount
-          # selling
-        elsif bought and did_buy
-          # sell
-          execute "sell", coin.to_s, target.to_s                              if !amt
-          execute "sell", coin.to_s, target.to_s, ((amt*0.9975) / buyin).to_s if amt
-          
-          if !lo
-            message "Repeat: #{coin}, ended."
-            next false
-          end
-          
-          sold = true
-          bought  = false
-          did_buy = false
-        
-          message "Repeat: #{coin} Selling."
-        elsif bought
-          did_buy = true if avail > la and g
-          message "Repeat: #{coin} Bought."
-        elsif !bought and go
-          # buy
-          execute "buy", coin.to_s, buyin.to_s                                if !amt
-          execute "buy", coin.to_s, buyin.to_s, (amt-(cb.rate*cb.avail)).to_s if amt
-          bought  = true            if lo
-          go      = did_buy = false
-          g       = true
-          if !lo
-            message "Repeat: #{coin}, ended."
-            next false
-          end
-          message "Repeat: #{coin} Buying."
-        elsif sold and avail < la and g
-          go = true
-        end 
+    uuid = order = nil
+    
+    if order=@open.find do |o| o.market == "BTC-#{coin}" end
+      uuid = order.uuid
+    else
+      cb = balances.find do |q| q.coin.to_sym == coin end
+      b  = balances.find do |q| q.coin.to_sym == :BTC end
+      
+      if cb and b
+        if cb.btc > b.avail
+          a = amt
+          a = (cb.avail * cb.rate) / amt  if a
+          execute "sell", "#{coin}", target.trex_s, (a ? a.trex_s : "-1")      
+        else
+          execute "buy", coin, buyin.trex_s, (amt ? amt.trex_s : "-1")
+        end
+      elsif b and b.avail > 0.0005
+        execute "buy", coin, buyin.trex_s, (amt ? amt.trex_s : "-1")
       end
       
-      true
+      if lo
+        uuid = lo['uuid']
+      end
     end
+    
+    if uuid
+      on_order_closed do |o|
+        message o.type
+        if o.uuid == uuid
+          if o.type == "LIMIT_SELL"
+            execute "repeat", coin, buyin.trex_s, target.trex_s, ((a=(amt || -1)) == -1 ? "-1" : a.trex_s)
+            next if lo
+          elsif o.type == "LIMIT_BUY"
+            execute "sell", coin.to_s, target.trex_s, ((o.price / o.price_per_unit)*0.9975).to_s
+            if lo
+              execute "repeat", coin.to_s, buyin.trex_s, target.trex_s, ((a=(amt || -1)) == -1 ? "-1" : a.trex_s)
+              next
+            end
+          end
+        end
+        
+        message "Repeat: #{coin} - END"
+      end
+    else
+      message "Repeat: #{coin} - END"
+    end
+  rescue => e
+    raise e
   end
 end

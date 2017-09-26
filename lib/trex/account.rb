@@ -6,6 +6,12 @@ module Trex
       @secret = secret
     end
     
+    def get_order uuid
+      Trex::Order.get(self, uuid)
+    rescue 
+      nil
+    end
+    
     def withdraw coin, amt, addr
       Trex.withdraw self.key, self.secret, coin,amt,addr
     end

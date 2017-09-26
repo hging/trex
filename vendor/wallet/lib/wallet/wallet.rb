@@ -131,6 +131,8 @@ class Wallet
   def run
     init
     
+    poll_orders
+    
     @update = true
     
     screen.poll_feed
@@ -158,6 +160,47 @@ class Wallet
         end
       end
     end    
+  end
+  
+  def poll_orders
+    loa = (@open ||= [])
+    
+    Trex.timeout 1533 do
+      @open = account.orders 
+      loa.find_all do |o|
+        !@open.find do |oo| oo.uuid == o.uid end
+      end.each do |o|
+        on_order_removed o
+      end
+      
+      @open.find_all do |o|
+        !loa.find do |oo| oo.uuid == o.uid end
+      end.each do |o|
+        on_order_opened o
+      end      
+      true
+    end 
+    
+    def on_order_removed o, &b
+      if !b
+        ((@order_callbacks ||= {})[:removed] ||= []).each do |cb| cb.call o end
+        ((@order_callbacks ||= {})[:closed]  ||= []).each do |cb| cb.call o end if account.get_order(o.uuid)
+      else
+        ((@order_callbacks ||= {})[:removed] ||= []) << b
+      end
+    end
+    
+    def on_order_opened o, &b
+      if !b
+        ((@order_callbacks ||= {})[:opened] ||= []).each do |cb| cb.call o end
+      else
+        ((@order_callbacks ||= {})[:opened] ||= []) << b
+      end
+    end
+    
+    def on_order_closed &b
+      ((@order_callbacks ||= {})[:closed]  ||= []) << b
+    end
   end
   
   @on_init = []
