@@ -100,7 +100,7 @@ module Trex
     env[:rates]["USDT-BTC"]
   end
   
-  def self.btc coin, amt
+  def self.btc coin, amt=1
     return amt if coin.to_s.upcase == "BTC"
 
     if coin.to_s.upcase == "USDT"

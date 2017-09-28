@@ -163,21 +163,24 @@ class Wallet
   end
   
   def poll_orders
-    loa = (@open ||= [])
+    @loa     = []
+    @open ||= []
     
-    Trex.timeout 1533 do
+    Trex.timeout 1233 do
       @open = account.orders 
-      loa.find_all do |o|
-        !@open.find do |oo| oo.uuid == o.uid end
+      @loa.find_all do |o|
+        !@open.find do |oo| oo.uuid == o.uuid end
       end.each do |o|
         on_order_removed o
       end
       
       @open.find_all do |o|
-        !loa.find do |oo| oo.uuid == o.uid end
+        !@loa.find do |oo| oo.uuid == o.uuid end
       end.each do |o|
         on_order_opened o
       end      
+      
+      @loa = @open
       true
     end 
     
@@ -185,6 +188,7 @@ class Wallet
       if !b
         ((@order_callbacks ||= {})[:removed] ||= []).each do |cb| cb.call o end
         ((@order_callbacks ||= {})[:closed]  ||= []).each do |cb| cb.call o end if account.get_order(o.uuid)
+        message("Order: #{o.uuid} Removed.")
       else
         ((@order_callbacks ||= {})[:removed] ||= []) << b
       end
@@ -193,6 +197,7 @@ class Wallet
     def on_order_opened o, &b
       if !b
         ((@order_callbacks ||= {})[:opened] ||= []).each do |cb| cb.call o end
+        message("Order: #{o.uuid} Opened.")
       else
         ((@order_callbacks ||= {})[:opened] ||= []) << b
       end

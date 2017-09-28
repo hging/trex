@@ -11,7 +11,7 @@ require 'trex/socket_api' if socket = ARGV.index("--socket")
 
 wallet = Wallet.new
 
-unless ARGV.index("--withdraw") or ARGV.index("--withdrawals") or ARGV.index("--withdrawals")
+unless ARGV.index("--withdraw") or ARGV.index("--withdrawals") or ARGV.index("--withdrawals") or ARGV.index("--rate") or ARGV.index("--usd")
   wallet.init 
   wallet.run if socket
 else
@@ -19,7 +19,7 @@ else
     puts *o
   end
 
-  cmd = [:withdraw, :withdrawals].find do |a|
+  cmd = [:withdraw, :withdrawals, :rate, :usd].find do |a|
     ARGV.index "--#{a}"
   end
   
@@ -27,6 +27,8 @@ else
   ARGV.each do |q|
     a << q if q !~ /^\-\-/
   end
+  
+  Trex.init if [:rate,:usd].index(cmd) 
   
   wallet.execute cmd, *a if cmd
 end

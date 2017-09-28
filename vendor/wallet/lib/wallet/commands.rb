@@ -72,15 +72,20 @@ class Wallet
         end
       end
     when "cancel"
+      u=nil
       if !args[0] and lo and lo["uuid"]
-        `#{order_exe} --cancel='#{lo["uuid"]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
+        `#{order_exe} --cancel='#{u=lo["uuid"]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
       elsif args[0] == "all"
         `#{order_exe} --cancel=all #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
       elsif args[0] == "market"
         `#{order_exe} --cancel=true --market='#{args[1]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
       elsif args[0] =~ /^([0-9]+)/ and !oa.empty?
-        `#{order_exe} --cancel='#{oa[$1.to_i].uuid}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
+        `#{order_exe} --cancel='#{u=oa[$1.to_i].uuid}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
       end
+      # if u
+      #   o=@open.find do |o| o.uuid == u end
+      #   @open.delete o if o
+      # end
     when 'buy' 
       market = "BTC-#{args[0].upcase}"
       rate   = args[1] || "diff"
@@ -88,6 +93,7 @@ class Wallet
       message "BUY Order "+lo=`#{order_exe} #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
       begin
         self.lo = JSON.parse(lo)
+        @open << Struct.new(:uuid).new(lo["uuid"])
       rescue => e;message e.to_s;
         lo=nil
       end
@@ -99,6 +105,7 @@ class Wallet
       message "SELL Order "+lo=`#{command}`
       begin
         self.lo = JSON.parse(lo.strip)
+        @open << Struct.new(:uuid).new(lo["uuid"])
       rescue => e ;message e.to_s;
         lo=nil
       end
@@ -109,6 +116,10 @@ class Wallet
       message res="#{`ruby -e "p(#{args.join(' ')})"`}"
       screen.puts res if @eval_mode
     when "rate"
+      message Trex.btc(args[0],1).trex_s
+    when "usd"
+      message Trex.usd(args[0],1).trex_s(3)    
+    when "btc-rate"
       if args[0] == "gdax"
         update_gdax unless @enable_gdax
         message "Rate: Using GDAX for USD conversion" 
@@ -229,7 +240,7 @@ class Wallet
       if cb and b
         if cb.btc > b.avail
           a = amt
-          a = (cb.avail * cb.rate) / amt  if a
+          a = amt / cb.rate  if a
           execute "sell", "#{coin}", target.trex_s, (a ? a.trex_s : "-1")      
         else
           execute "buy", coin, buyin.trex_s, (amt ? amt.trex_s : "-1")
