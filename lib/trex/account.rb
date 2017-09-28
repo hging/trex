@@ -140,6 +140,10 @@ module Trex
       end
     end
     
+    def history market: nil, struct: true
+      Trex.order_history self.key,self.secret, market: market, struct: struct
+    end
+
     def balance coin, struct: true
       obj = Trex.get({
         api:     :account,

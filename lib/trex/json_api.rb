@@ -309,6 +309,28 @@ module Trex
       
       from_obj obj, account: account
     end
+    
+    def self.history account, market: nil, struct: true
+      q = {}
+      q = {
+        market: market
+      } if market
+       
+      obj = Trex.get({
+        version: 1.1,
+        api:    :account,
+        method: :getorderhistory,
+        key:    account.key,
+        secret: account.secret,
+        query: q
+      })
+      
+      return obj unless struct
+      
+      obj.map do |o|
+        from_obj o, account: account
+      end
+    end    
   end  
   
   def self.account key,secret, struct: false
@@ -321,8 +343,8 @@ module Trex
     Order.get_open(account(key,secret, struct: true), struct: struct)
   end
   
-  def self.order_history key, secret, struct: true
-    Order.history(account(key,secret, true), struct: struct)
+  def self.order_history key, secret, market: nil, struct: true
+    Order.history(account(key,secret, struct: true), market: market, struct: struct)
   end
   
   def self.order key, secret, uuid, struct: true
