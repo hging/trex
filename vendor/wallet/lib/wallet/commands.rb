@@ -1,4 +1,23 @@
 class Wallet
+  def order_summary o, idx = nil
+    a=[]
+    
+    a.push("Index: #{idx}") if idx
+    
+    a.push(*[
+      "Market: #{o.market}", "Rate: #{o.limit}",
+      "Amount: #{o.quantity}",
+      "Type: #{o.type}"
+    ]).join(", ")  
+  end
+
+  def history *args
+    orders = account.history market: args[0]
+    message(orders.map do |o|
+      order_summary o
+    end.join("\n"))
+  end
+
   def stash args
     target = args[0] || :USDT
               
@@ -146,11 +165,7 @@ class Wallet
           return
         end
         
-        message([
-          "Index: #{idx}", "Market: #{o.market}", "Rate: #{o.limit}",
-          "Amount: #{o.quantity}",
-          "Type: #{o.type}"
-        ].join(", "))
+        message(order_summary(o, idx))
         return
       end
     
@@ -160,13 +175,7 @@ class Wallet
       
       idx=-1
       a=oa.map do |o|
-        [
-          "Index: #{idx+=1}",
-          "Market: #{o.market}",
-          "Rate: #{o.limit}",
-          "Amount: #{o.quantity}",
-          "Type: #{o.type}"
-        ].join(", ")
+        order_summary(o,idx+=1)
       end
       message(a.empty? ? "No Orders" : a.join("\n"))
     when "repeat"
@@ -178,10 +187,36 @@ class Wallet
       withdrawals *args
     when "withdraw"
       withdraw *args
+    when "history"
+      history *args
     when "stash"
       stash()
     when "clear"
       screen.clear
+    when "when"
+      type = args[0]
+      case args[1]
+      when ">="
+        @when << (proc do
+          amt = Float(args[2])
+          if instance_variable_get("@#{type}").to_f >= amt
+            execute *args[3..-1]
+          end
+        end)
+      end
+    when "as"
+      coin = args[0].to_s.upcase.to_sym
+      if coin != @as
+        @as = coin
+        @as_amt = nil
+      end
+      if args[1] == "at"
+        @as_rate = Float(args[2])
+      else
+        @as_rate = Trex.btc(coin,1)
+      end
+      @as_amt ||= @btc / Trex.btc(coin,1)
+      message("#{@btc.trex_s}BTC: as #{@as} at rate: #{@as_rate} "+Trex.usd(:BTC, @as_amt * @as_rate).trex_s(3))
     when "toggle"
       @update = !@update
       screen.clear
@@ -211,6 +246,11 @@ class Wallet
         execute what, *args[1..-1]
       elsif what == "halt"
         @update = false
+      elsif what == "history"
+        @update = false
+        screen.clear
+        execute what, *args[1..-1]
+        @msg_buff.split("\n").each do |l| screen.puts l end
       end
     end
   rescue => e

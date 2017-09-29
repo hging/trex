@@ -11,16 +11,17 @@ require 'trex/socket_api' if socket = ARGV.index("--socket")
 
 wallet = Wallet.new
 
-unless ARGV.index("--withdraw") or ARGV.index("--withdrawals") or ARGV.index("--withdrawals") or ARGV.index("--rate") or ARGV.index("--usd")
+
+cmd = [:withdrawals, :withdraw, :rate, :usd, :order, :open, :history].find do |a|
+  ARGV.index "--#{a}"
+end
+
+unless cmd
   wallet.init 
   wallet.run if socket
 else
   def wallet.message *o
     puts *o
-  end
-
-  cmd = [:withdraw, :withdrawals, :rate, :usd].find do |a|
-    ARGV.index "--#{a}"
   end
   
   a = []

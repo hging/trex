@@ -57,6 +57,9 @@ class Wallet
     screen.puts "".ljust(screen.columns,"-")
     screen.puts "BTC:".colourize(-1, bold: true)+" #{tb.trex_s.rjust(16)} #{"USD:".colourize(-1, bold: true)} #{tu.trex_s(3).rjust(10)} #{@enable_gdax ? gdax : ""}"
     screen.puts @message.to_s
+  
+    @btc=tb
+    @usd=tu
   end
   
   attr_accessor :account, :wallets, :lo, :oa, :screen, :order_exe, :balances, :watching, :btc_rate_override
@@ -70,6 +73,8 @@ class Wallet
         end
       end
     end
+  
+    @when = []
   
     @screen = Screen.new prompt: "TRXSH>: ".colourize(-1,bold: true), columns: columns
     @balances = []; @watching = []
@@ -155,6 +160,10 @@ class Wallet
         Trex.timeout 100 do
           screen.update do
             print_balances self.balances
+            @when.each do |cb|
+              cb.call
+              @when.delete cb
+            end
           end if @update
           true
         end
