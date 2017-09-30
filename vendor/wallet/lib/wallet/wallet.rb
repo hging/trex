@@ -196,8 +196,28 @@ class Wallet
     def on_order_removed o, &b
       if !b
         ((@order_callbacks ||= {})[:removed] ||= []).each do |cb| cb.call o end
-        ((@order_callbacks ||= {})[:closed]  ||= []).each do |cb| cb.call o end if account.get_order(o.uuid)
-        message("Order: #{o.uuid} Removed.")
+        if go=account.get_order(o.uuid)
+          ((@order_callbacks ||= {})[:closed]    ||= []).each do |cb| 
+            cb.call go 
+          end if go.closed? 
+          
+          del = []
+          (a = (@order_callbacks ||= {})[:filled]    ||= []).each do |cb| 
+            cb.call go
+            del << cb 
+          end if go.price
+          del.each do |cb| a.delete cb end 
+          
+          ((@order_callbacks ||= {})[:canceled]  ||= []).each do |cb| 
+            cb.call go 
+          end if go.canceled? 
+          
+          if go.closed?
+            message("Order: #{o.uuid} Removed.")
+          end
+        else
+          message("Order: #{o.uuid} Removed.")
+        end
       else
         ((@order_callbacks ||= {})[:removed] ||= []) << b
       end
@@ -215,6 +235,14 @@ class Wallet
     def on_order_closed &b
       ((@order_callbacks ||= {})[:closed]  ||= []) << b
     end
+   
+    def on_order_cancelled &b
+      ((@order_callbacks ||= {})[:cancelled]  ||= []) << b
+    end
+    
+    def on_order_filled &b
+      ((@order_callbacks ||= {})[:filled]  ||= []) << b
+    end        
   end
   
   @on_init = []

@@ -8,7 +8,47 @@ class Wallet
       "Market: #{o.market}", "Rate: #{o.limit}",
       "Amount: #{o.quantity}",
       "Type: #{o.type}"
-    ]).join(", ")  
+    ])
+    
+    a.push("Price/Unit: #{o.price_per_unit}", "Price: #{o.price}") if !@update
+    
+    a.join(", ")  
+  end
+  
+  def convert from, to
+    middle = :BTC
+  
+    execute "sell", from
+    if lo
+      uuid = lo.uuid
+      
+      pre_bal = account.balance(middle)
+      pre_bal = pre_bal.amount
+      
+      on_order_filled do |o|
+        if uuid == o.uuid
+          expected = (o.quantity * o.rate)
+        
+          if account.balance(middle).amount >= pre_bal+(expected*0.9975)
+            execute "buy", to, "diff", (expected*0.9975).to_s
+            if lo
+              uuid = lo.uuid
+              on_order_filled do |o|
+                if o.uuid == uuid
+                  message "Convert #{from} to #{to}, Complete"
+                end
+              end
+            else
+              message "Convert #{from} to #{to}, failed: buy <to>"
+            end
+          else
+            message "Convert #{from} to #{to}, failed: amounts mismatch"
+          end
+        end
+      end
+    else
+      message "Convert #{from} to #{to}, failed: sell <from>"
+    end
   end
 
   def history *args
@@ -90,10 +130,12 @@ class Wallet
           execute "watch", o.market.split("-")[1]
         end
       end
+    when "convert"
+      convert *args
     when "cancel"
       u=nil
-      if !args[0] and lo and lo["uuid"]
-        `#{order_exe} --cancel='#{u=lo["uuid"]}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
+      if !args[0] and lo and lo.uuid
+        `#{order_exe} --cancel='#{u=lo.uuid}' #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
       elsif args[0] == "all"
         `#{order_exe} --cancel=all #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end}`
       elsif args[0] == "market"
@@ -111,10 +153,10 @@ class Wallet
       amount = args[2] || -1
       message "BUY Order "+lo=`#{order_exe} #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
       begin
-        self.lo = JSON.parse(lo)
-        @open << Struct.new(:uuid).new(lo["uuid"])
+        lo = JSON.parse(lo)
+        @open << self.lo=Struct.new(:uuid).new(lo["uuid"])
       rescue => e;message e.to_s;
-        lo=nil
+        self.lo=nil
       end
     when 'sell' 
       market = "BTC-#{args[0].upcase}"
@@ -123,10 +165,10 @@ class Wallet
       command = "#{order_exe} #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --sell"
       message "SELL Order "+lo=`#{command}`
       begin
-        self.lo = JSON.parse(lo.strip)
-        @open << Struct.new(:uuid).new(lo["uuid"])
+        lo = JSON.parse(lo.strip)
+        @open << self.lo=Struct.new(:uuid).new(lo["uuid"])
       rescue => e ;message e.to_s;
-        lo=nil
+        self.lo=nil
       end
     when "addr"
       coin = args[0]
@@ -148,7 +190,7 @@ class Wallet
     when "api-rate"
       message Trex::JSONApi.rate.to_s
     when "uuid"
-      if !args[0] and lo and uuid=lo["uuid"]
+      if !args[0] and lo and uuid=lo.uuid
         message "Laster Order UUID: #{uuid}"
       elsif !oa.empty? and idx=args[0]
         o = oa[idx.to_i]

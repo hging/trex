@@ -239,6 +239,10 @@ module Trex
       self.class.cancel self.account, self.uuid
     end
     
+    def canceled?
+      !price and closed?
+    end
+    
     def pp
       h = self.to_h
       h.delete :account
@@ -308,6 +312,8 @@ module Trex
       return obj unless struct
       
       from_obj obj, account: account
+    rescue => e
+      raise e
     end
     
     def self.history account, market: nil, struct: true

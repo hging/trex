@@ -6,8 +6,8 @@ module Trex
       @secret = secret
     end
     
-    def get_order uuid
-      Trex::Order.get(self, uuid)
+    def get_order uuid, struct: true
+      Trex::Order.get(self, uuid, struct: struct)
     rescue 
       nil
     end
