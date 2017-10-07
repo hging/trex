@@ -14,6 +14,13 @@ end
 
 ARGV.find do |a| break if a=~/\-\-cancel\=(.*)/ end
 if uuid = $1
+  if uuid == "all"
+    account.orders.each do |o|
+      o.cancel
+    end
+    
+    exit
+  end
   account.cancel uuid
   exit
 end

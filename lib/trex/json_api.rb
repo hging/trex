@@ -128,7 +128,9 @@ module Trex
       
       obj[:MarketName] = market
       obj[:Last]       = obj["Last"]
-      
+      obj[:Ask]        = obj["Ask"]
+      obj[:Bid]        = obj["Bid"]
+                  
       Trex.update_candle obj # unless Trex.env[:streaming_rates]
       
       return obj unless struct

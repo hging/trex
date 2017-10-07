@@ -120,13 +120,13 @@ module Trex
         Trex.usd coin,amount
       end
       
-      def rate base=:BTC
-        b=base
-        c=coin
-        
-        Trex.btc(coin,1)
+      def rate base: :BTC, type: :close
+        return 1 if coin == :BTC
+        return 1 / Trex.candle("USDT-BTC")[type] if coin == :USDT
+        market = "#{base}-#{coin}"
+        Trex.candle(market)[type]
       rescue => e
-        p e
+        raise e
         0.0
       end
       
@@ -136,6 +136,8 @@ module Trex
         {"Balance" => :amount, "Available" => :avail, "Currency" => :coin, "Pending" => :pending, "CryptoAddress" => :address}.each_pair do |h,s|
           ins[s] = obj[h]
         end
+        
+        ins.coin = ins.coin.to_sym
         ins
       end
     end

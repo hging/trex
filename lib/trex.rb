@@ -124,25 +124,41 @@ module Trex
   
   def self.update_candle s
     prev = (Trex.env[:rates] ||= {})[market = s[:MarketName]]
-    Trex.env[:rates][market] = rate = s[:Last]
-    (Trex.env[:open] ||= {})[market] = rate if !(Trex.env[:open] ||= {})[market]
-    (Trex.env[:prev] ||= {})[market] = prev unless prev == rate
-    (Trex.env[:high] ||= {})[market] = rate if rate > (Trex.env[:high] ||= {})[market].to_f
-    (Trex.env[:low]  ||= {})[market] = rate if rate < (Trex.env[:low] ||= {})[market].to_f    
+    Trex.env[:rates][market]   = rate = s[:Last] || Trex.env[:rates][market]
+    (Trex.env[:bid]  ||= {})[market]  = s[:Bid] || ((Trex.env[:bid]  ||= {})[market])      
+    (Trex.env[:ask]  ||= {})[market]  = s[:Ask] || (Trex.env[:ask]  ||= {})[market]   
+    (Trex.env[:open] ||= {})[market]  = rate if !(Trex.env[:open] ||= {})[market]
+    (Trex.env[:prev] ||= {})[market]  = prev unless prev == rate
+    (Trex.env[:high] ||= {})[market]  = rate if rate > (Trex.env[:high] ||= {})[market].to_f
+    (Trex.env[:low]  ||= {})[market]  = rate if rate < (Trex.env[:low] ||= {})[market].to_f    
   end
   
   def self.candle market
     hi    = Trex.env[:high][market]  || 0.0
     low   = Trex.env[:low][market]   || 0.0
     open  = Trex.env[:open][market]  || 0.0
-    close = Trex.env[:close][market] || 0.0
+    close = Trex.env[:rates][market] || 0.0
     prev  = Trex.env[:prev][market]  || 0.0   
+    bid   = Trex.env[:bid][market]   || 0.0    
+    ask   = Trex.env[:ask][market]   || 0.0
     
-    Struct.new(:high,:low,:close,:open, :prev) do
+    Struct.new(:high,:low,:close,:open, :prev, :bid, :ask) do
       def rate
         close
       end
-    end.new(hi,low,close,open, prev)
+      
+      def diff
+        (bid+ask) / 2.0
+      end
+  
+      def [] k
+        if k == :diff
+          return self.diff
+        end
+        
+        super
+      end
+    end.new(hi,low,close,open, prev, bid, ask)
   end
   
   private

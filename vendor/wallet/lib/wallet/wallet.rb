@@ -33,7 +33,7 @@ class Wallet
   end
 
   def print_balances balances=self.balances
-    screen.puts ("COIN".ljust(6)+"      Amount".ljust(17)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD").colourize(-1, bold: true)
+    screen.puts ("COIN".ljust(6)+"      #{@pending ? "Pending" : "Amount"}".ljust(17)+"       Avail".ljust(16)+"        BTC".ljust(16)+"          USD".ljust(10)+"     Rate BTC          Rate USD").colourize(-1, bold: true)
     screen.puts "-"*screen.columns
     
     tu=0
@@ -43,7 +43,12 @@ class Wallet
       tb += (b = bal.btc)*0.9975
       tu += u=usd(bal)*0.9975
     
-      screen.puts "#{bal.coin.to_s.ljust(5).colourize(-1, bold: true)} #{bal.amount.trex_s.rjust(17)} #{bal.avail.trex_s.rjust(16).colourize?(bal.amount.to_f > bal.avail.to_f,[-1,1],[-1,-1])} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [0, 2], [0, 1])} #{(usd() * rt).trex_s(3).rjust(10)}" 
+      ap    = "#{bal.amount.trex_s.rjust(17)}"
+      ap    = "#{bal.pending.trex_s.rjust(17)}" if @pending
+      avail = " #{bal.avail.trex_s.rjust(16).colourize?(bal.amount.to_f > bal.avail.to_f,[-1,1],[-1,-1])}"
+      
+    
+      screen.puts "#{bal.coin.to_s.ljust(5).colourize(-1, bold: true)} #{ap}#{avail} #{(b).trex_s.rjust(16)} #{(u).trex_s(3).rjust(10)}   #{(rt=bal.rate(type: @rate)).trex_s(10).colourize?(rt > Trex.candle("BTC-#{bal.coin}").prev, [0, 2], [0, 1])} #{(usd() * rt).trex_s(3).rjust(10)}" 
     end
     
     gdax = ""
@@ -81,6 +86,8 @@ class Wallet
     
     @lo=nil
     @oa=[]
+      
+    @rate = :diff  
       
     @msg_line = 0
     @msg_buff = ""
@@ -152,7 +159,7 @@ class Wallet
           execute cmd, *args
         end
 
-        Trex.timeout 10000 do
+        Trex.timeout 2000 do
           @balances = get_balances account,watching
           true
         end
@@ -160,6 +167,9 @@ class Wallet
         Trex.timeout 100 do
           screen.update do
             print_balances self.balances
+            #screen.clear
+            @z ||= []
+            #Graph.new.draw screen,@z.push(balances.find do |b| b.coin == :AEON end.rate(type: :diff) * usd())
             @when.each do |cb|
               cb.call
               @when.delete cb
@@ -170,6 +180,11 @@ class Wallet
       end
     end    
   end
+  
+  def balance coin
+    watching << coin unless watching.index(coin)
+    balances.find do |b| b.coin == coin end || account.balance(coin)
+  end  
   
   def poll_orders
     @loa     = []
@@ -249,5 +264,42 @@ class Wallet
   def self.on_init &b
     @on_init << b if b
     return @on_init
+  end
+end
+
+class Graph
+  def draw screen,rates
+    ymax = 15
+    
+    high,low = 0,0
+    a=rates.sort
+    high = a[-1]
+    low  = a[0]
+    
+    max = high - low
+    min = 0
+   
+    cols = 99
+   
+    rows = {}
+    range = 0..-1
+    range = -cols..-1 if rates.length > cols+1
+    rates[range].each_with_index do |r,i|
+      y = (r / high.to_f) * ymax   
+      (rows[y.floor] ||= []) << i  
+    end
+    rows.keys.sort.each_with_index do |k,i|
+      r = rows[k]
+      a=[]
+      a[cols] = nil
+      r.each do |c|
+        a[c] = "." if c
+        a[c] = "*" if c and (c == rates.length-1 or c == cols-1) 
+      end
+      s=a.map do |q| q ? q : " " end.join()
+      s=s.colourize(-1,4) if a.index "*"
+      s = "#{(high * (k / ymax.to_f)).trex_s}".rjust(15)+s
+      screen.puts s
+    end
   end
 end

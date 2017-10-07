@@ -457,7 +457,11 @@ module Trex
         
           book.update state
           
-          Trex.env[:rates][market] = (book.low_ask + book.high_bid) / 2 if book.low_ask and book.high_bid
+          Trex.update_candle({
+            Bid:        book.high_bid,
+            Ask:        book.low_ask,
+            MarketName: market
+          })
         
           cb.call book, market, state
         else

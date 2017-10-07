@@ -14,7 +14,24 @@ class Wallet
     
     a.join(", ")  
   end
+
+  def order_aide(market, coin, *args)
+    u = nil
+    if args[1] == "usd"
+	  args.delete_at(1)
+  	  u = Float(args.delete_at(1))
+    end
+
+    args[1] = Trex.candle(market).bid  if args[1] == "bid"
+    args[1] = Trex.candle(market).ask  if args[1] == "ask"
+    args[1] = Trex.candle(market).diff if args[1] == "diff"            
+
+    rate    = args[1] || Trex.candle(market).diff
+    amount  = u ? (u / Trex.usd(coin,1)) : (args[2] || -1)  
   
+    return rate,amount
+  end
+    
   def convert from, to
     middle = :BTC
   
@@ -56,6 +73,13 @@ class Wallet
     message(orders.map do |o|
       order_summary o
     end.join("\n"))
+  end
+  
+  def view what, *args
+    @update = false
+    screen.clear
+    execute what, *args[0..-1]
+    @msg_buff.split("\n").each do |l| screen.puts l end  
   end
 
   def stash args
@@ -115,7 +139,7 @@ class Wallet
   rescue => e
     message(e.to_s)
   end
-
+  
   def execute cmd, *args
     case cmd.to_s
     when 'watch'
@@ -149,8 +173,9 @@ class Wallet
       # end
     when 'buy' 
       market = "BTC-#{args[0].upcase}"
-      rate   = args[1] || "diff"
-      amount = args[2] || -1
+    
+      rate, amount = order_aide(market, :BTC, *args)
+      
       message "BUY Order "+lo=`#{order_exe} #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
       begin
         lo = JSON.parse(lo)
@@ -159,11 +184,26 @@ class Wallet
         self.lo=nil
       end
     when 'sell' 
-      market = "BTC-#{args[0].upcase}"
-      rate   = args[1] || "diff"
-      amount = args[2] || -1
+      if args[0] == "all"
+        balances.each do |b|
+          if (b.avail*b.rate(type: @rate)) > 0.0005
+            if b.coin != :USDT
+              execute "sell", b.coin.to_s if b.coin != :BTC
+            end
+          end
+        end
+        
+        return
+      end
+
+      market = "BTC-#{coin=args[0].upcase.to_sym}"
+    
+      rate, amount = order_aide(market, coin, *args)
+      
       command = "#{order_exe} #{ARGV.find do |a| a =~ /\-\-account\-file\=/ end} --market=#{market} --rate=#{rate} --amount=#{amount} --sell"
+     
       message "SELL Order "+lo=`#{command}`
+     
       begin
         lo = JSON.parse(lo.strip)
         @open << self.lo=Struct.new(:uuid).new(lo["uuid"])
@@ -236,15 +276,32 @@ class Wallet
     when "clear"
       screen.clear
     when "when"
-      type = args[0]
-      case args[1]
-      when ">="
+      query = nil
+      type  = args[0]
+      qi    = 1
+      
+      if args[1] == "of"
+        qi = 3
+      end
+      
+      if [">=","<=",">","<","=="].index(op=args[qi])
         @when << (proc do
-          amt = Float(args[2])
-          if instance_variable_get("@#{type}").to_f >= amt
-            execute *args[3..-1]
+          if qi == 3
+            bal = balance(args[2].upcase.to_sym)
+            
+            query = bal.usd  if type == "usd"
+            query = bal.btc  if type == "btc"
+            query = bal.rate(type: @rate) if type == "rate"
+            query = Trex.usd(args[2].upcase.to_sym, 1)  if type == "rate-usd"
           end
-        end)
+          
+          amt   = Float(args[qi+1])
+          query = instance_variable_get("@#{type}").to_f unless query
+          
+          if query.send(op.to_sym, amt)
+            execute *args[qi+2..-1]
+          end
+        end)       
       end
     when "as"
       coin = args[0].to_s.upcase.to_sym
@@ -266,33 +323,23 @@ class Wallet
       if !(what=args[0])
         @update = true
         screen.clear
+        @eval_mode = @pending = false
+      elsif ["bid", "ask", "diff"].index(what)
+        @rate = what.to_sym
+      elsif what == "pending"
+        @pending = true
       elsif what == "open"
-        @update=false
-        screen.clear
-        execute what, *args[1..-1]
-
-        @msg_buff.split("\n").each do |l| screen.puts l end
+        view what, *args[1..-1]
       elsif what == "withdrawals"
-        @update=false
-        
-        screen.clear
-        
-        execute what, *args[1..-1]
-        
-        @msg_buff.split("\n").each do |l| screen.puts l end
+        view what, *args[1..-1]
       elsif what == "eval"
         @eval_mode = true
       elsif what == "addr"
-        @update = false
-        screen.clear
-        execute what, *args[1..-1]
+        view what, *args[1..-1]
       elsif what == "halt"
         @update = false
       elsif what == "history"
-        @update = false
-        screen.clear
-        execute what, *args[1..-1]
-        @msg_buff.split("\n").each do |l| screen.puts l end
+        view what, *args[1..-1]
       end
     end
   rescue => e
