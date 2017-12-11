@@ -8,21 +8,21 @@ class ChartBuffer
     @coin = coin
   end
 
-  def signal b,a
+  def signal a,b
     res = a <=> b
     
     return  0 if res == 0
-    return  1 if a > (1.005)*b
-    return -1 if a < (b*0.995)
+    return  -1 if a > b
+    return   1 if a < b
     
     return 0
   end
   
   def sim hours, &b
-    @all = Trex.get_ticks("#{@base}-#{@coin}")[-((60*(hours))+20)..-1].map do |q| q.close end
+    @all = Trex.get_ticks("#{@base}-#{@coin}")[-((60*(hours))+26)..-1].map do |q| q.close end
 
     (hours/1.5).floor.times do
-      @period = @all[45..(((hours)*60)+20)].find_all do |q| q end   
+      @period = @all[45..(((hours)*60)+26)].find_all do |q| q end   
       b.call
       @all.shift
     end
@@ -30,26 +30,33 @@ class ChartBuffer
    # b.call
   end
 
+  def sell?
+    @sell
+  end
+  
+  attr_accessor :sell
+
   def update
     if !@period
-      @period     = Trex.get_ticks("#{@base}-#{@coin}")[-((61*1)+20)..-1].map do |q| q.close end
+      @period     = Trex.get_ticks("#{@base}-#{@coin}")[-((46*1)+26)..-1].map do |q| q.close end
       @period[-1] = Trex.candle("#{@base}-#{@coin}").diff if !ARGV.index("-s")
     end
   
     if !ARGV.index("-s")
       @period.shift 
   
-      @period << Trex.candle("#{@base}-#{@coin}").diff
+      candle = Trex.candle("#{@base}-#{@coin}")
+      @period << (sell? ? candle.bid : candle.ask)
     end
     
-    chart = @period[-46..-1]
-    pos   = 0
+    chart = @period[26..-1]
+    pos   = -
     
     mins = 0
     ema = chart.find_all do |f| f end.map do |q|
       mins +=1
-      ema12 = @period[(8+pos) .. (pos+20)]
-      ema20 = @period[(pos) .. (pos+20)]
+      ema12 = @period[(14+pos)..(pos+26)]
+      ema20 = @period[ (0+pos)..(pos+26)]
     
       pos += 1
     
@@ -59,8 +66,9 @@ class ChartBuffer
         ema12:             e12=ema12.map do |z| z end.ema,
         ema20:             e20=ema20.map do |z| z end.ema, 
         price:             q,
-        signal_ema12price: signal(e12, q), 
-        signal_ema:        signal(e20, e12)
+        signal_ema12price: signal(q, e12), 
+        signal_ema26price: signal(q, e20),
+        signal_ema:        signal(e12, e20)
       }
     end
   end
@@ -92,21 +100,23 @@ class App
 
   def sell amt, c
     @hold = false
+    chart.sell=false
     p [:sell, amt, c]
-    @currency = amt*c
+    @currency = (amt*c)*0.9975
   end
 
   def buy currency, c
     @hold = true
+    chart.sell=true
     p [:buy, currency, c]
-    @amt = (currency / c.to_f)
+    @amt = 0.9975*(currency / c.to_f)
   end
 
   def step
     return unless @current
         
     signal  = @current[:signal_ema12price]
-    signal1 = @current[:signal_ema]
+    signal1 = @current[:signal_ema26price]
     
     @d = true  if signal < 1 and @d != false
     @d = false if signal == 1  and @d
@@ -132,7 +142,7 @@ class App
       @data[:usd] << @currency   
     end
     
-    puts "\rSignal: #{signal} x #{signal1}. Price: #{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{(@currency*br).trex_s}USD, BTC == #{br.trex_s}"    
+    print "\rSignal: #{signal} x #{signal1}. Price: #{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{(@currency*br).trex_s}USD, BTC == #{br.trex_s}"    
   end
 
   def run
@@ -156,7 +166,8 @@ class App
         end
   
         Trex.timeout 111 do
-          @price = Trex.candle("#{@base}-#{@coin}").diff
+          candle = Trex.candle("#{@base}-#{@coin}")
+          @price = @hold ? candle.bid : candle.ask
         
           step
           
@@ -191,7 +202,7 @@ class App
     end
     a << a.last+step
     
-    amt = @data[:usd].map do |q| q.trex_s(8) end
+    amt = @data[:usd].map do |q| q.trex_s(3) end
     l = amt[-1]
     amt = amt.every((amt.length/a.length.to_f).floor)
     
