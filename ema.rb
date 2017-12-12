@@ -21,11 +21,11 @@ class ChartBuffer
   def sim hours, &b
     @all = Trex.get_ticks("#{@base}-#{@coin}")[-((60*(hours))+26)..-1].map do |q| q.close end
 
-    (hours/1.5).floor.times do
+   # (hours/1.5).floor.times do
       @period = @all[45..(((hours)*60)+26)].find_all do |q| q end   
       b.call
       @all.shift
-    end
+   # end
     
    # b.call
   end
@@ -96,9 +96,14 @@ class App
       ema20: [],
       usd:   []
     }
+    
+    @reports = []
+    @sells   = 0
+    @buys    = 0
   end
 
   def sell amt, c
+    @sells += 1
     @hold = false
     chart.sell=false
     p [:sell, amt, c]
@@ -106,6 +111,7 @@ class App
   end
 
   def buy currency, c
+    @buys += 1
     @hold = true
     chart.sell=true
     p [:buy, currency, c]
@@ -126,7 +132,6 @@ class App
     end  
 
     if @d == false and signal == 1 and !@hold
-      p current
       buy @currency, @price
     end
 
@@ -136,13 +141,31 @@ class App
     @data[:ema20] << @current[:ema20]
     @data[:price] << @price
     
+    r=1
+    r = br if base != "USDT"
+    
     if @hold
-      @data[:usd] << (@price * @amt)
+      @data[:usd] << (@price * @amt)*r
     else
-      @data[:usd] << @currency   
+      @data[:usd] << @currency   *r
     end
     
-    print "\rSignal: #{signal} x #{signal1}. Price: #{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{(@currency*br).trex_s}USD, BTC == #{br.trex_s}"    
+    usd =""
+    usd = "(USD: #{(@price*r).trex_s(3)}) BTC- " if base != "USDT"
+    
+    print "\rSignal: #{signal} x #{signal1}. Price: #{usd}#{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{(@currency*r).trex_s}USD, BTC == #{br.trex_s}"    
+  end
+
+  def report
+    render    
+    this = {pair: "#{base}-#{coin}", buys: @buys, sells: @sells, orders: @buys+@sells, coin: @amt, base: @currency}
+    @reports << this
+    @reports.shift if @reports.length > 60
+    this
+  end
+  
+  def log
+    File.open("./ema.log", "w") do |f| f.puts @reports.to_json end
   end
 
   def run
@@ -161,11 +184,14 @@ class App
         
         Trex.timeout 60000 do
           @current = chart.update.last
-    
+          Thread.new do
+            report
+            log
+          end
           true
         end
   
-        Trex.timeout 111 do
+        Trex.idle do
           candle = Trex.candle("#{@base}-#{@coin}")
           @price = @hold ? candle.bid : candle.ask
         
@@ -175,7 +201,7 @@ class App
         end
       else
         mins = 0
-        chart.sim (1.5) do
+        chart.sim (6) do
           
           chart.update.each do |c|
             mins += 1
