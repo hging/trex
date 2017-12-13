@@ -3,6 +3,7 @@ require 'moving_average'
 require 'trex'
 
 class ChartBuffer
+  attr_accessor :book, :amt, :currency
   def initialize base, coin
     @base = base
     @coin = coin
@@ -12,22 +13,16 @@ class ChartBuffer
     res = a <=> b
     
     return  0 if res == 0
-    return  -1 if a > b
-    return   1 if a < b
+    return -1 if a > b
+    return  1 if a < b
     
     return 0
   end
   
   def sim hours, &b
     @all = Trex.get_ticks("#{@base}-#{@coin}")[-((60*(hours))+26)..-1].map do |q| q.close end
-
-   # (hours/1.5).floor.times do
-      @period = @all[45..(((hours)*60)+26)].find_all do |q| q end   
-      b.call
-      @all.shift
-   # end
-    
-   # b.call
+    @period = @all[45..(((hours)*60)+26)].find_all do |q| q end   
+    b.call if b
   end
 
   def sell?
@@ -38,15 +33,26 @@ class ChartBuffer
 
   def update
     if !@period
-      @period     = Trex.get_ticks("#{@base}-#{@coin}")[-((46*1)+26)..-1].map do |q| q.close end
-      @period[-1] = Trex.candle("#{@base}-#{@coin}").diff if !ARGV.index("-s")
+      sim 1.5
     end
   
     if !ARGV.index("-s")
       @period.shift 
   
-      candle = Trex.candle("#{@base}-#{@coin}")
-      @period << (sell? ? candle.bid : candle.ask)
+      if sell?
+        rt = book.rate_at(amt, :bid)
+        return unless rt
+        return unless rt < Float::INFINITY
+        @period << rt
+      else
+        a = book.amt_for(currency, :ask)
+        return unless a
+        
+        rt = currency / a.to_f
+        
+        return unless rt < Float::INFINITY
+        @period << rt
+      end
     end
     
     chart = @period[26..-1]
@@ -82,13 +88,21 @@ module Enumerable
 end 
 
 class App
-  attr_reader :base,:coin,:chart, :price, :current, :amt, :currency
-  def initialize base,coin, currency
+  attr_reader :base, :market, :book, :coin,:chart, :price, :current, :amt, :currency
+  def initialize base,coin
     @base = base.to_s.upcase
     @coin = coin.to_s.upcase
-    @currency = currency
-  
+    
+    @market = "#{@base}-#{@coin}"
+
+    Trex.init
+    Trex.ticker market
+      
     @chart = ChartBuffer.new @base, @coin
+  
+    balances
+  
+    @s_usd = t_usd
   
     @data = {
       price: [],
@@ -101,119 +115,241 @@ class App
     @sells   = 0
     @buys    = 0
   end
-
+  
+  def balances
+    @currency = Trex.env[:account].balance(base).avail.to_f
+    @amt      = Trex.env[:account].balance(coin).avail.to_f
+    
+    chart.currency = currency
+    chart.amt      = @amt
+  end
+  
+  def act
+    Trex.env[:account]
+  end
+  
+  def order type, vol, rate
+    return true if ARGV.index("-s") or ARGV.index("-S")
+  
+    cmd="ruby ./bin/order --account-file=#{Trex.env[:account_file]} --#{type} --market=#{base}-#{coin} --rate=#{rate} --amount=all"
+    puts cmd
+    res = `#{cmd}`
+    
+    json = JSON.parse(res)
+    
+    unless !json["err"]
+      puts json
+      exit
+    end
+    
+    uuid = json["result"]["uuid"]
+    order = nil
+    puts res
+    p({uuid: uuid, rate: rate, vol: vol})
+    until order and order.closed?
+      order=Trex.env[:account].get_order(uuid)
+      sleep 1
+      puts "order: #{uuid} open"
+    end
+    
+    balances
+    
+    puts "order: #{uuid} closed"
+    
+    true
+  end
+  
   def sell amt, c
-    @sells += 1
-    @hold = false
-    chart.sell=false
-    p [:sell, amt, c]
-    @currency = (amt*c)*0.9975
+    if res=order(:sell, amt, c)
+      @sells += 1
+      @hold = false
+      chart.sell=false
+    
+      puts
+      p [:sell, amt, c]
+      @currency = (amt*c)*0.9975 if ARGV.index("-s") or ARGV.index("-S")
+      chart.sell=false
+    end
   end
 
   def buy currency, c
-    @buys += 1
-    @hold = true
-    chart.sell=true
-    p [:buy, currency, c]
-    @amt = 0.9975*(currency / c.to_f)
+    if order(:buy, currency,c)
+      @buys += 1
+      @hold = true
+      chart.sell=true
+      puts
+      p [:buy, currency, c]
+      @amt = 0.9975*(currency / c.to_f) if ARGV.index("-s") or ARGV.index("-S")
+      chart.sell=true
+    end
   end
 
+  def candle
+    Trex.candle("#{base}-#{coin}")
+  end
+
+  attr_accessor :signal1, :signal
   def step
     return unless @current
         
-    signal  = @current[:signal_ema12price]
-    signal1 = @current[:signal_ema26price]
+    @signal  = @current[:signal_ema12price]
+    @signal1 = @current[:signal_ema26price]
     
-    @d = true  if signal < 1 and @d != false
-    @d = false if signal == 1  and @d
+    @d = true  if @signal < 1 and @d != false
+    @d = false if @signal == 1  and @d
     
-    if @d == false and signal == -1 and @hold
+    if ARGV.index("-h")
+      @d    = false
+      @hold = true
+    end
+
+    if ARGV.index("-b")
+      @d    = false
+      signal = 1
+      ARGV.delete "-b"
+    end
+    
+    ts=ARGV.index("--ts")
+    tb=ARGV.index("--tb")
+    
+    if (ts) or (@d == false and @signal == -1 and @hold)
       sell @amt, @price
     end  
 
-    if @d == false and signal == 1 and !@hold
+    if (tb) or (@d == false and @signal == 1 and !@hold)
       buy @currency, @price
     end
 
-    br = ARGV.index("-s") ? 15000 : Trex.candle("USDT-BTC").diff
+    exit if tb or ts
 
-    @data[:ema12] << @current[:ema12]
-    @data[:ema20] << @current[:ema20]
-    @data[:price] << @price
+    br = ARGV.index("-s") ? 16000 : Trex.candle("USDT-BTC").diff
+    r  = 1
+    r  = br if base != "USDT"
     
-    r=1
-    r = br if base != "USDT"
+    if ARGV.index("-s")  
+      @data[:ema12] << @current[:ema12]
+      @data[:ema20] << @current[:ema20]
+      @data[:price] << @price
     
-    if @hold
-      @data[:usd] << (@price * @amt)*r
-    else
-      @data[:usd] << @currency   *r
+      
+      @data[:usd] << t_usd
     end
+  end
+
+  def br
+    br = ARGV.index("-s") ? 16000 : Trex.candle("USDT-BTC").diff
+  end
+  
+  def r
+    r  = 1
+    r  = br if base != "USDT"  
+    r
+  end
+
+  def t_usd
+    @price ||= Trex.candle(market).diff
     
-    usd =""
-    usd = "(USD: #{(@price*r).trex_s(3)}) BTC- " if base != "USDT"
-    
-    print "\rSignal: #{signal} x #{signal1}. Price: #{usd}#{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{(@currency*r).trex_s}USD, BTC == #{br.trex_s}"    
+    ARGV.index("-s") ? @currency*r : ((@currency*r)+(@amt*@price*r))
   end
 
   def report
-    render    
-    this = {pair: "#{base}-#{coin}", buys: @buys, sells: @sells, orders: @buys+@sells, coin: @amt, base: @currency}
+    puts render if ARGV.index("-s")    
+    
+    this = {
+      pair:   "#{base}-#{coin}",
+      start:  @s_usd,
+      buys:   @buys, 
+      sells:  @sells, 
+      orders: @buys+@sells, 
+      coin:   @amt, 
+      base:   @currency,
+      USD:    eu=@data[:usd].last,
+      pct:    eu/@s_usd
+    }
+    
     @reports << this
     @reports.shift if @reports.length > 60
+    
     this
   end
   
   def log
     File.open("./ema.log", "w") do |f| f.puts @reports.to_json end
   end
+  
+  def status
+    return unless @current
+    usd =""
+    usd = "(USD: #{(@price*r).trex_s(3)}) BTC- " if base != "USDT"
+    
+    print "\rSignal: #{@signal} x #{@signal1}. Price: #{usd}#{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{t_usd.trex_s}USD, BTC == #{br.trex_s}"    
+   
+  end
 
-  def run
+  def run  
+    arg = ARGV.find do |a| a=~/\-\-hours\=(.*)/ end
+    hrs = $1.to_f
+    ARGV.delete arg
+  
     Trex.run do
       @hold      = nil
        
-      if !ARGV.index("-s")
-        Trex.init
-        Trex.ticker "#{@base}-#{@coin}"
-  
-        Trex.socket.order_books("#{@base}-#{@coin}", 'USDT-BTC') do |*o|
-     
+      if !ARGV.index("-s")  
+        Trex.socket.order_books(self.market, 'USDT-BTC') do |book, market, *o|
+          if !@book and market == self.market
+            @book      = book
+            chart.book = book
+            
+            chart.sim 1.5 do
+              upd = chart.update
+              next true unless upd
+              @current = upd.last
+            end
+          end
+          
+          true
         end     
-      
-        @current = chart.update.last
         
         Trex.timeout 60000 do
-          @current = chart.update.last
+          next true unless @book
+          
+          upd = chart.update
+          next true unless upd
+          @current = upd.last
+          
           Thread.new do
             report
             log
           end
-          true
-        end
-  
-        Trex.idle do
-          candle = Trex.candle("#{@base}-#{@coin}")
-          @price = @hold ? candle.bid : candle.ask
+
+          next true unless (@book and @current)
+
+          @price = current[:price]
         
           step
           
           true
         end
+      
+        Trex.idle do
+          status
+          true
+        end
       else
         mins = 0
-        chart.sim (6) do
+        chart.sim (hrs) do
           
           chart.update.each do |c|
             mins += 1
             break unless @current=c
             @price   = @current[:price]
                   
-            step  
+            step
+            status  
           end
         end
         puts
-        p mins
-        puts render
+        puts JSON.pretty_generate report
         exit
       end
     end
@@ -266,5 +402,5 @@ end
 
 require 'googlecharts'
 
-app = App.new ARGV[0], ARGV[1], ARGV[2].to_f
+app = App.new ARGV[0], ARGV[1]
 app.run
