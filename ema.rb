@@ -31,32 +31,40 @@ class ChartBuffer
   
   attr_accessor :sell
 
+  def price
+    rt=nil
+    if sell?
+      rt = book.rate_at(amt, :bid)
+    else
+      if a = book.amt_for(currency, :ask)
+        rt = currency / a.to_f
+      end
+    end
+    
+    if !rt or !(rt < Float::INFINITY)
+      p [amt, sell?, a, rt, currency]
+    end
+    
+    return unless rt
+    return unless rt < Float::INFINITY
+      
+    rt
+  end
+  
   def update
-    if !@period
+    if !@period or !ARGV.index("-s")
       sim 1.5
     end
   
     if !ARGV.index("-s")
-      @period.shift 
+      #@period.shift 
   
-      if sell?
-        rt = book.rate_at(amt, :bid)
-        return unless rt
-        return unless rt < Float::INFINITY
-        @period << rt
-      else
-        a = book.amt_for(currency, :ask)
-        return unless a
-        
-        rt = currency / a.to_f
-        
-        return unless rt < Float::INFINITY
-        @period << rt
-      end
+      #return unless r=price
+      #@period << r
     end
     
     chart = @period[26..-1]
-    pos   = -
+    pos   = 0
     
     mins = 0
     ema = chart.find_all do |f| f end.map do |q|
@@ -198,15 +206,23 @@ class App
     @d = true  if @signal < 1 and @d != false
     @d = false if @signal == 1  and @d
     
+    
+    
     if ARGV.index("-h")
       @d    = false
       @hold = true
+      ARGV.delete "-h"
     end
 
     if ARGV.index("-b")
       @d    = false
       signal = 1
       ARGV.delete "-b"
+    end
+
+    if ARGV.index("-c")
+      @d    = false
+      ARGV.delete "-c"
     end
     
     ts=ARGV.index("--ts")
@@ -278,11 +294,11 @@ class App
   end
   
   def status
-    return unless @current
+    return unless @current and @price
     usd =""
     usd = "(USD: #{(@price*r).trex_s(3)}) BTC- " if base != "USDT"
     
-    print "\rSignal: #{@signal} x #{@signal1}. Price: #{usd}#{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{t_usd.trex_s}USD, BTC == #{br.trex_s}"    
+    print "\r# #{@sells+@buys} Signal: #{@signal} x #{@signal1}. Price: #{usd}#{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{t_usd.trex_s}USD, BTC == #{br.trex_s}"    
    
   end
 
@@ -298,6 +314,19 @@ class App
         Trex.socket.order_books(self.market, 'USDT-BTC') do |book, market, *o|
           if !@book and market == self.market
             @book      = book
+            
+            bk = Trex.book market, "both" 
+            
+            bk["buy"].each do |b|
+              b.keys.each do |k| b[:"#{k}"]= b[k] end
+              book.bids[b[:Rate]] = Trex::SocketAPI::Entry.from_obj(:bid, b)
+            end
+            
+            bk["sell"].each do |b|
+              b.keys.each do |k| b[:"#{k}"]= b[k] end
+              book.asks[b[:Rate]] = Trex::SocketAPI::Entry.from_obj(:ask, b)
+            end            
+            
             chart.book = book
             
             chart.sim 1.5 do
@@ -321,17 +350,20 @@ class App
             report
             log
           end
-
+          true
+        end
+        
+        Trex.idle do
           next true unless (@book and @current)
 
-          @price = current[:price]
+          @price = chart.price
         
           step
           
-          true
-        end
+        #  true
+        #end
       
-        Trex.idle do
+        #Trex.idle do
           status
           true
         end
