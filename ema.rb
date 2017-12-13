@@ -175,7 +175,9 @@ class App
     
       puts
       p [:sell, amt, c]
-      @currency = (amt*c)*0.9975 if ARGV.index("-s") or ARGV.index("-S")
+      if ARGV.index("-s") or ARGV.index("-S")
+        @chart.currency = @currency = (amt*c)*0.9975
+      end
       chart.sell=false
     end
   end
@@ -187,7 +189,9 @@ class App
       chart.sell=true
       puts
       p [:buy, currency, c]
-      @amt = 0.9975*(currency / c.to_f) if ARGV.index("-s") or ARGV.index("-S")
+      if ARGV.index("-s") or ARGV.index("-S")
+        chart.amt = @amt = 0.9975*(currency / c.to_f) 
+      end
       chart.sell=true
     end
   end
