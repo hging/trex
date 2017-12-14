@@ -183,7 +183,21 @@ module Trex
       return obj unless struct
       
       Summary.from_obj obj
-    end    
+    end 
+    
+    def self.book market, type
+      obj = Trex.get({
+        version: 1.1,
+        method:  :getorderbook,
+        api:     :public,
+        query:   {
+          market: market,
+          type:   type
+        }   
+      })
+      
+      return obj
+    end   
   end
   
   Order = Struct.new(:uuid, :quantity, :state, :price, :price_per_unit, :type, :account, :market,:limit) do    
@@ -378,6 +392,10 @@ module Trex
   def self.ticker market, struct: true
     Market.ticker market, struct: struct
   end  
+  
+  def self.book market, type
+    Market.book market, type
+  end
 end
 
 if __FILE__ == $0
