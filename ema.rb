@@ -210,8 +210,6 @@ class App
     @d = true  if @signal < 1 and @d != false
     @d = false if @signal == 1  and @d
     
-    
-    
     if ARGV.index("-h")
       @d    = false
       @hold = true
@@ -219,9 +217,17 @@ class App
     end
 
     if ARGV.index("-b")
-      @d    = false
-      signal = 1
+      @d      = false
+      @signal = 1
       ARGV.delete "-b"
+    end
+
+    if i=ARGV.index("-B")
+      @d    = false
+      @signal = 1
+      @price = ARGV[i+1].to_f
+      ARGV.delete_at(i)
+      ARGV.delete_at(i)
     end
 
     if ARGV.index("-c")
