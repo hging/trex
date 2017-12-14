@@ -5,30 +5,69 @@ require 'grio/dsl'
 
 raise unless account=Trex.env[:account]
 
-if ARGV.index("--open")
-  account.orders.each do |o|
-   puts o.pp
-  end
+def result &b
+  obj = b.call
+  puts JSON.pretty_generate({result: obj})
   exit
+rescue => e
+  puts ({err: e.to_s}.to_json)
+  exit
+end
+
+def order account, type, market, amt, rate
+  uuid = account.send type, market, amt, rate
+  uuid
+end
+
+if ARGV.index("--open")
+  result do
+    account.orders
+  end
 end
 
 ARGV.find do |a| break if a=~/\-\-cancel\=(.*)/ end
 if uuid = $1
   if uuid == "all"
-    account.orders.each do |o|
-      o.cancel
+    result do
+      account.orders.each do |o|
+        o.cancel
+      end
+      
+      true
     end
-    
-    exit
   end
-  account.cancel uuid
-  exit
+  
+  result do
+    account.cancel uuid
+    true
+  end
 end
+
+if ARGV.index("--btc")
+  ARGV << "--balance=btc"
+end
+
+ARGV.find do |a| break if a=~/\-\-balance\=(.*)/ end
+if coin = $1
+  result do
+    bal = account.balance(n=coin.upcase.to_sym)
+    { 
+      name:    n,
+      avail:   bal.avail,
+      total:   bal.amount,
+      pending: bal.pending,
+      address: bal.address,
+    }
+  end
+end
+
+
 
 ARGV.find do |a| break if a=~/\-\-status\=(.*)/ end
 if uuid = $1
-  puts Trex::Order.get(account, uuid).pp
-  exit
+  result do
+    Trex::Order.get(account, uuid)
+  end
 end
 
 
@@ -66,8 +105,9 @@ if market = $1
       amt=amt.to_f
     end
   
-    uuid = account.sell market, amt, rate
-    puts uuid.to_json    
+    result do
+      order(account, :sell, market, amt, rate)
+    end
   elsif ARGV.index "--buy"
     if amt == "all" or amt == "-1"
       amt = base.avail
@@ -77,7 +117,8 @@ if market = $1
       amt=amt.to_f
     end
   
-    uuid = account.buy market, amt, rate
-    puts uuid.to_json
+    result() do
+      order(account, :buy, market, amt, rate)
+    end
   end
 end

@@ -260,14 +260,23 @@ module Trex
     end
     
     def pp
-      h = self.to_h
-      h.delete :account
+      h=to_h
       h.keys.each do |k|
         if h[k].is_a?(Float)
           h[k] = h[k].trex_s(10)
         end
       end
       JSON.pretty_generate h
+    end
+
+    def to_h
+      h = super
+      h.delete :account
+      h
+    end
+    
+    def to_json *o
+      to_h.to_json
     end
     
     def self.history account, struct: true

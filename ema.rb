@@ -134,7 +134,7 @@ class App
     end
     
     if !rt or !(rt < Float::INFINITY)
-      p [amt, sell?, a, rt, currency]
+      p [amt, @hold, a, rt, currency]
     end
     
     return unless rt
@@ -159,12 +159,25 @@ class App
     
     uuid = json["result"]["uuid"]
     order = nil
+    
     puts res
+    
     p({uuid: uuid, rate: rate, vol: vol})
+    
     until order and order.closed?
       order=Trex.env[:account].get_order(uuid)
+      
+      if (@signal == 1  and type.to_s == "sell") or (@signal == -1 and type.to_s == "buy") or (@signal == 0)
+        `./bin/order --cancel=#{uuid} --account-file=#{Trex.env[:account_file]}`
+        sleep 1
+        `./bin/order --cancel=#{uuid} --account-file=#{Trex.env[:account_file]}`
+        return false
+      end
+      
       sleep 1
+      puts
       puts "order: #{uuid} open"
+      step
     end
     
     balances
