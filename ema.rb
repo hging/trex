@@ -19,8 +19,12 @@ class ChartBuffer
     return 0
   end
   
+  def market
+    "#{@base}-#{@coin}"
+  end
+  
   def sim hours, &b
-    @all = Trex.get_ticks("#{@base}-#{@coin}")[-((60*(hours))+26)..-1].map do |q| q.close end
+    @all = Trex.get_ticks(market)[-((60*(hours))+26)..-1].map do |q| q.close end
     @period = @all[45..(((hours)*60)+26)].find_all do |q| q end   
     b.call if b
   end
@@ -30,37 +34,16 @@ class ChartBuffer
   end
   
   attr_accessor :sell
-
-  def price
-    rt=nil
-    if sell?
-      rt = book.rate_at(amt, :bid)
-    else
-      if a = book.amt_for(currency, :ask)
-        rt = currency / a.to_f
-      end
-    end
-    
-    if !rt or !(rt < Float::INFINITY)
-      p [amt, sell?, a, rt, currency]
-    end
-    
-    return unless rt
-    return unless rt < Float::INFINITY
-      
-    rt
-  end
   
   def update
-    if !@period or !ARGV.index("-s")
+    if !@period
       sim 1.5
     end
   
     if !ARGV.index("-s")
-      #@period.shift 
-  
-      #return unless r=price
-      #@period << r
+      return unless rt = (book.last || Trex.ticker(market).last)
+      @period.shift 
+      @period << rt
     end
     
     chart = @period[26..-1]
@@ -134,6 +117,30 @@ class App
   
   def act
     Trex.env[:account]
+  end
+  def simulate?
+    ARGV.index("-s")
+  end
+  
+  def market_order_price
+    return @price if simulate?
+    rt=nil
+    if @hold
+      rt = book.rate_at(amt, :bid)
+    else
+      if a = book.amt_for(currency, :ask)
+        rt = currency / a.to_f
+      end
+    end
+    
+    if !rt or !(rt < Float::INFINITY)
+      p [amt, sell?, a, rt, currency]
+    end
+    
+    return unless rt
+    return unless rt < Float::INFINITY
+      
+    rt  
   end
   
   def order type, vol, rate
@@ -263,19 +270,23 @@ class App
   end
 
   def br
-    br = ARGV.index("-s") ? 16000 : Trex.candle("USDT-BTC").diff
+    br = 1
+    
+    if base != "USDT"
+      br = Trex.candle("USDT-#{base}").diff
+    end
+    
+    br
   end
   
   def r
-    r  = 1
-    r  = br if base != "USDT"  
-    r
+    r  = br
   end
 
   def t_usd
     @price ||= Trex.candle(market).diff
     
-    ARGV.index("-s") ? @currency*r : ((@currency*r)+(@amt*@price*r))
+    (ARGV.index("-s") or ARGV.index("-S")) ? @currency*r : ((@currency*r)+(@amt*@price*r))
   end
 
   def report
@@ -303,13 +314,28 @@ class App
     File.open("./ema.log", "w") do |f| f.puts @reports.to_json end
   end
   
+  def view_usd?
+    true
+  end
+  
   def status
     return unless @current and @price
-    usd =""
-    usd = "(USD: #{(@price*r).trex_s(3)}) BTC- " if base != "USDT"
     
-    print "\r# #{@sells+@buys} Signal: #{@signal} x #{@signal1}. Price: #{usd}#{@price.trex_s}, #{@current[:ema12].trex_s}, #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{t_usd.trex_s}USD, BTC == #{br.trex_s}"    
-   
+    mr   = market_order_price
+    diff = simulate? ? mr : book.diff
+    
+    if view_usd?
+      usd   = (@price*r)
+      ema12 = @current[:ema12]*r
+      ema26 = @current[:ema20]*r
+      
+      mr   = mr*r
+      diff = diff*r
+       
+      print "\r# #{@sells+@buys} Signal: #{@signal} x #{@signal1}. Diff: #{diff.trex_s(3)} Market: #{mr.trex_s(3)} Last: #{usd.trex_s(3)}, EMA12 #{ema12.trex_s(3)}, EMA26 #{ema26.trex_s(3)}. Wallet: #{@amt.trex_s}#{coin}, $#{t_usd.trex_s(3)}, BTC == #{br.trex_s}"          
+    else
+      print "\r# #{@sells+@buys} Signal: #{@signal} x #{@signal1}. Diff: #{diff.trex_s()} Market  #{mr.trex_s} Last: #{@price.trex_s}, EMA12 #{@current[:ema12].trex_s}, EMA26 #{@current[:ema20].trex_s}. Wallet: #{@amt.trex_s}#{coin}, #{base}#{@currency.trex_s}, BTC == #{br.trex_s}"    
+    end 
   end
 
   def run  
@@ -321,9 +347,13 @@ class App
       @hold      = nil
        
       if !ARGV.index("-s")  
-        Trex.socket.order_books(self.market, 'USDT-BTC') do |book, market, *o|
+        Trex.socket.order_books(self.market, 'USDT-BTC') do |book, market, state|
           if !@book and market == self.market
             @book      = book
+            
+            @book.bids.clear
+            @book.asks.clear
+            @book.trades.clear
             
             bk = Trex.book market, "both" 
             
@@ -366,7 +396,7 @@ class App
         Trex.idle do
           next true unless (@book and @current)
 
-          @price = chart.price
+          @price = current[:price]
         
           step
           

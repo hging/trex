@@ -39,7 +39,7 @@ module Trex
         
         self.trades = delta[:Fills].map do |e|
           e = Entry.from_obj e[:OrderType].downcase.to_sym, e
-        end              
+        end unless delta[:Fills].empty?              
       end
       
       def self.init *o
@@ -54,6 +54,29 @@ module Trex
       
       def high_bid
         bids.keys.sort[-1]
+      end
+      
+      def bid
+        high_bid
+      end
+      
+      def ask
+        low_ask
+      end
+      
+      def diff
+        (ask + bid) / 2.0
+      end
+      
+      def last
+        l = nil
+        i = 0
+        (trades || []).map do |t|
+          l = 0 unless  l 
+          l += t.rate
+          i+=1
+        end
+        l ? (l / i.to_f) : nil
       end
       
       def rate_at volume, type
@@ -418,7 +441,7 @@ module Trex
     def self.order_books *markets, &b
       @books     ||= {}
       if @opened
-        add_book_watch *markets,b
+        add_book_watch *markets, struct: true, &b
       else
         @pending_book_watch << [markets, b]
       end
@@ -428,7 +451,7 @@ module Trex
     
     def self.summaries *markets, &b
       if @opened
-        add_summary_watch *markets,b
+        add_summary_watch *markets, struct: true, &b
       else
         @pending_summary_watch << [markets, b]
       end
@@ -449,7 +472,7 @@ module Trex
       singleton.order_books *markets do |state|
         market = state[:MarketName]
          
-        if struct
+        if true
           if book = @books[market]
           else
             book = @books[market] = SocketAPI::OrderBook.init
@@ -537,7 +560,7 @@ module Trex
         
         s.on :open do
           @pending_book_watch.map do |k,v|
-            add_book_watch(*k,&v)
+            add_book_watch(*k,struct: true,&v)
           end
           
           @pending_summary_watch.map do |k,v|

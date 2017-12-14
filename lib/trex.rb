@@ -124,13 +124,14 @@ module Trex
   
   def self.update_candle s
     prev = (Trex.env[:rates] ||= {})[market = s[:MarketName]]
-    Trex.env[:rates][market]   = rate = s[:Last] || Trex.env[:rates][market]
+    return unless (rate = (s[:Last] || Trex.env[:rates][market]))
+    Trex.env[:rates][market]   = rate
     (Trex.env[:bid]  ||= {})[market]  = s[:Bid] || ((Trex.env[:bid]  ||= {})[market])      
     (Trex.env[:ask]  ||= {})[market]  = s[:Ask] || (Trex.env[:ask]  ||= {})[market]   
     (Trex.env[:open] ||= {})[market]  = rate if !(Trex.env[:open] ||= {})[market]
     (Trex.env[:prev] ||= {})[market]  = prev unless prev == rate
-    (Trex.env[:high] ||= {})[market]  = rate if rate > (Trex.env[:high] ||= {})[market].to_f
-    (Trex.env[:low]  ||= {})[market]  = rate if rate < (Trex.env[:low] ||= {})[market].to_f    
+    (Trex.env[:high] ||= {})[market]  = rate if rate > ((Trex.env[:high] ||= {})[market]||=rate).to_f
+    (Trex.env[:low]  ||= {})[market]  = rate if rate < ((Trex.env[:low] ||= {})[market]||=rate).to_f    
   end
   
   def self.candle market
@@ -189,6 +190,7 @@ Trex.env[:simulate]      = ARGV.index("--trex-simulate")
 
 ARGV.find do |a| break if a=~/\-\-account\-file\=(.*)/ end
 if account_file = $1
+  Trex.env[:account_file] = account_file
   Trex.env[:account]       = Trex::Account.new(*JSON.parse(open(account_file).read))
 end
 

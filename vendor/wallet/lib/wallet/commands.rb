@@ -90,13 +90,13 @@ class Wallet
       next if bal.coin == target
       
       market = "BTC-#{bal.coin}"
-      `#{order_exe} #{Trex.env[:account_file]} --market=#{market} --rate=diff --amount=-1 --sell`
+      `#{order_exe} --account-file=#{Trex.env[:account_file]} --market=#{market} --rate=diff --amount=-1 --sell`
     end
 
     Trex.idle do
       list = balances.map do |bal| bal.coin end.sort
       if list == [:BTC, target].sort or list == [:BTC]
-        `#{order_exe} #{Trex.env[:account_file]} --market=USDT-BTC --rate=diff --amount=-1 --sell`
+        `#{order_exe} --account-file=#{Trex.env[:account_file]} --market=USDT-BTC --rate=diff --amount=-1 --sell`
         next false
       else
         next true
@@ -159,13 +159,13 @@ class Wallet
     when "cancel"
       u=nil
       if !args[0] and lo and lo.uuid
-        `#{order_exe} --cancel='#{u=lo.uuid}' #{Trex.env[:account_file]}`
+        `#{order_exe} --cancel='#{u=lo.uuid}' --account-file=#{Trex.env[:account_file]}`
       elsif args[0] == "all"
-        `#{order_exe} --cancel=all #{Trex.env[:account_file]}`
+        `#{order_exe} --cancel=all --account-file=#{Trex.env[:account_file]}`
       elsif args[0] == "market"
-        `#{order_exe} --cancel=true --market='#{args[1]}' #{Trex.env[:account_file]}`
+        `#{order_exe} --cancel=true --market='#{args[1]}' --account-file=#{Trex.env[:account_file]}`
       elsif args[0] =~ /^([0-9]+)/ and !oa.empty?
-        `#{order_exe} --cancel='#{u=oa[$1.to_i].uuid}' #{Trex.env[:account_file]}`
+        `#{order_exe} --cancel='#{u=oa[$1.to_i].uuid}' --account-file=#{Trex.env[:account_file]}`
       end
       # if u
       #   o=@open.find do |o| o.uuid == u end
@@ -176,7 +176,7 @@ class Wallet
     
       rate, amount = order_aide(market, :BTC, *args)
       
-      message "BUY Order "+lo=`#{order_exe} #{Trex.env[:account_file]} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
+      message "BUY Order "+lo=`#{order_exe} --account-file=#{Trex.env[:account_file]} --market=#{market} --rate=#{rate} --amount=#{amount} --buy`
       begin
         lo = JSON.parse(lo)
         @open << self.lo=Struct.new(:uuid).new(lo["uuid"])
@@ -200,7 +200,7 @@ class Wallet
     
       rate, amount = order_aide(market, coin, *args)
       
-      command = "#{order_exe} #{Trex.env[:account_file]} --market=#{market} --rate=#{rate} --amount=#{amount} --sell"
+      command = "#{order_exe} --account-file=#{Trex.env[:account_file]} --market=#{market} --rate=#{rate} --amount=#{amount} --sell"
      
       message "SELL Order "+lo=`#{command}`
      

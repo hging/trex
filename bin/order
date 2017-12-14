@@ -45,11 +45,13 @@ if market = $1
   raise unless rate
   raise unless amt
   
-  tick = Trex.ticker market
+
   
   if ["last","ask","bid"].index(rate)
+    tick = Trex.ticker market
     rate = tick.send(rate.to_sym)
   elsif rate == "diff"
+    tick = Trex.ticker market
     rate = (tick.ask + tick.bid) / 2
   else
     rate = rate.to_f
