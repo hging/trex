@@ -1,0 +1,112 @@
+#!/usr/bin/env ruby
+
+require 'trex'
+
+def result &b
+  obj = b.call
+  puts JSON.pretty_generate({result: obj})
+  exit
+rescue => e
+  puts ({err: e.to_s}.to_json)
+  raise e
+  exit
+end
+
+def usd?
+  ARGV.index("-u") or ARGV.index("--usd-rates")
+end
+
+def usd market, amt
+  if (base=market.split("-")[0].to_s.downcase) != "usdt"
+    amt = amt*Trex.ticker("USDT-#{base.upcase}").last
+  end
+  
+  amt
+end
+
+def ticker market
+  result do
+    h = Trex.ticker(market.upcase).to_h
+    h.keys.each do |k|
+      h[k] = usd(market, h[k])
+    end if usd?
+    h[:market] = market
+    h
+  end
+end
+
+def rates *markets
+  result do
+    markets.map do |m|
+      r = Trex.ticker(m).last
+      
+      {
+        market: m,
+        rate: usd? ? usd(m.upcase, r) : r
+
+      }
+    end
+  end
+end
+
+def intratrage market
+  result do
+    base,coin = market.split("-").map do |c| c.upcase.to_sym end
+  
+    rates=[:ETH, :BTC, :USDT].find_all do |b| 
+      next false unless b != coin
+      begin
+        Trex.ticker("#{b}-#{coin}")
+      rescue
+        next false
+      end
+      
+      b 
+    end.map do |b|
+      tick = Trex.ticker("#{b}-#{coin}")
+      ask = tick.ask
+      bid = tick.bid
+      r = bid+((ask-bid)/2.0)
+      
+      {
+        market: m="#{b}-#{coin}",
+        diff:   r,
+        usd:    usd(m, r),
+        bid:    bid,
+        ask:    ask
+      }
+    end.sort do |a,b|
+      a[:usd] <=> b[:usd]
+    end
+  
+    {
+      rates: rates,
+      high: {
+              market: m=rates.last[:market],
+              rate:   rates.last[:bid],
+              usd:    h=usd(m, rates.last[:bid])
+            },
+      low:  {
+              market: m=rates[0][:market],
+              rate:   rates[0][:ask],
+              usd:    l=usd(m, rates[0][:ask]) 
+            },
+      pct:  h/l.to_f
+    }
+  end
+end
+
+if i = ARGV.index("--rates") or i = ARGV.index("-r")
+  rates *(ARGV[(i+1)..-1].find_all do |a| a !~ /^\-/ end)
+end
+
+ARGV.find do |a| a=~/\-\-market=(.*)/ end
+if market = $1
+  if ARGV.index("--ticker") or ARGV.index("-t")
+    ticker market
+  end
+
+  if ARGV.index("--intratrage") or ARGV.index("-i")
+    intratrage market
+  end
+end

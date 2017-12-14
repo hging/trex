@@ -1,0 +1,146 @@
+#!/usr/bin/env ruby
+
+require 'trex'
+
+class << self
+  def balances
+    balances = {}
+    
+    [:USDT, :BTC,:ETH, ARGV[-1].upcase.to_sym].each do |c|
+      balances[c] = Trex.env[:account].balance(c)
+    end
+    
+    balances
+  end
+end
+
+p $start = balances
+
+def result &b
+  obj = b.call
+  puts JSON.pretty_generate({result: obj})
+  exit
+rescue => e
+  puts ({err: e.to_s}.to_json)
+  raise e
+  exit
+end
+
+def order cmd
+  puts cmd
+  
+  j = JSON.parse(`#{cmd}`)
+  
+  raise j['err'] if j['err']
+
+  puts "Order UUID: #{uuid=j['result']['uuid']}"
+
+  order = nil
+
+  while !order or !order.closed?
+    order = Trex::Order.get(Trex.env[:account], uuid)
+    sleep 0.3
+    print "\r..."
+    sleep 0.3
+    print "\rOrder open"
+  end
+
+  true
+end
+
+def buy m, r
+  cmd = "./bin/order --account-file=#{Trex.env[:account_file]} --market=#{m} --buy --amount=all --rate=#{r}"
+  order cmd
+end
+
+def sell m, r
+  cmd = "./bin/order --account-file=#{Trex.env[:account_file]} --market=#{m} --sell --amount=all --rate=#{r}"
+  
+  order cmd
+end
+
+def intratrage coin
+  j = JSON.parse(`./bin/market -i --market=btc-#{coin}`)
+  if !j['err']
+    result do
+      target = 1.01
+    
+      l  = nil
+      h  = nil
+      go = false
+      
+      $pct = 1.0
+      
+      t=Thread.new do
+        loop do
+          print "\rwaiting for target rates: #{$pct}"
+          sleep 0.5
+          print "..."
+          sleep 0.5
+        end
+      end
+      
+      while !go
+        l = j['result']['low']
+        h = j['result']['high']
+      
+        go = ($pct=j['result']['pct']) >= target
+        break if go
+        sleep 3
+        
+        j = JSON.parse(`./bin/market -i --market=btc-#{coin}`)
+        raise j['err'] if j['err']
+      end
+      
+      t.kill
+      
+      puts "\nExecute - Percent: #{$pct}"
+      
+      if ARGV.index("-b") or !ARGV.index("-s")
+        buy  l['market'], br=l['rate']
+        sell h['market'], sr=h['rate']
+      else
+        sell h['market'], br=h['rate']
+        buy  l['market'], sr=l['rate']
+      end
+      
+      e = balances
+     
+      scoin=l['market'].split("-")[0].upcase.to_sym
+      sa = $start[scoin].avail
+      ea = e[coin=h['market'].split("-")[0].upcase.to_sym].avail - $start[coin].avail
+      
+      if scoin != :USDT
+        j = JSON.parse(`./bin/market -i --market=btc-#{scoin}`)
+        if j['err']
+          raise "Did complete: update err."
+        end
+        sa = j['result']['high']['usd'] * sa
+      end
+      
+      if coin != :USDT
+        j = JSON.parse(`./bin/market -i --market=btc-#{coin}`)
+        if j['err']
+          raise "Did complete: update err."
+        end
+        ea = j['result']['high']['usd'] * ea
+        
+        d = [:ETH,:BTC,:USDT].find do |c| c == scoin end
+        
+        begin
+          sell "#{d}-#{coin}", diff
+        rescue
+          raise "distribute err"
+        end
+      end      
+      
+      {
+        start: sa,
+        end:   ea,
+        gain:  ((ea*0.9975)-(sa*0.9975))*0.9975
+      }
+    end
+  end
+end
+
+intratrage ARGV.last.upcase

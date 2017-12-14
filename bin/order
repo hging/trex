@@ -25,24 +25,6 @@ if ARGV.index("--open")
   end
 end
 
-ARGV.find do |a| break if a=~/\-\-cancel\=(.*)/ end
-if uuid = $1
-  if uuid == "all"
-    result do
-      account.orders.each do |o|
-        o.cancel
-      end
-      
-      true
-    end
-  end
-  
-  result do
-    account.cancel uuid
-    true
-  end
-end
-
 if ARGV.index("--btc")
   ARGV << "--balance=btc"
 end
@@ -62,6 +44,23 @@ if coin = $1
 end
 
 
+ARGV.find do |a| break if a=~/\-\-cancel\=(.*)/ end
+if uuid = $1
+  if uuid == "all"
+    result do
+      account.orders.each do |o|
+        o.cancel
+      end
+      
+      true
+    end
+  end
+  
+  result do
+    account.cancel uuid
+    true
+  end
+end
 
 ARGV.find do |a| break if a=~/\-\-status\=(.*)/ end
 if uuid = $1
@@ -111,8 +110,8 @@ if market = $1
   elsif ARGV.index "--buy"
     if amt == "all" or amt == "-1"
       amt = base.avail
-    elsif amt =~ /\-([0-9]+)\.([0-9]+)/
-      amt = base.avail * ("#{$1}.#{$2}").to_f
+    elsif amt =~ /\%([0-9]+)/
+      amt = base.avail * (($1).to_f / 100)
     else
       amt=amt.to_f
     end
