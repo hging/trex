@@ -53,7 +53,7 @@ def intratrage market
   result do
     base,coin = market.split("-").map do |c| c.upcase.to_sym end
   
-    rates=[:ETH, :BTC, :USDT].find_all do |b| 
+    rates=[:ETH, :BTC].find_all do |b| 
       next false unless b != coin
       begin
         Trex.ticker("#{b}-#{coin}")
@@ -94,6 +94,11 @@ def intratrage market
       pct:  h/l.to_f
     }
   end
+end
+
+def ticks market, rng
+  ta = Trex.get_ticks market
+  ta[rng]
 end
 
 if i = ARGV.index("--rates") or i = ARGV.index("-r")

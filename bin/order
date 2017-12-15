@@ -98,8 +98,8 @@ if market = $1
   if ARGV.index "--sell"
     if amt == "all" or amt == "-1"
       amt = coin.avail
-    elsif amt =~ /\-([0-9]+)\.([0-9]+)/
-      amt = coin.avail * ("#{$1}.#{$2}").to_f
+    elsif amt =~ /\%([0-9]+)/
+      amt = coin.avail * (($1).to_f / 100)
     else
       amt=amt.to_f
     end
