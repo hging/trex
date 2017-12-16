@@ -51,9 +51,11 @@ end
 
 def intratrage market
   result do
+    btc_rate = Trex.ticker("USDT-BTC").bid
+    
     base,coin = market.split("-").map do |c| c.upcase.to_sym end
   
-    rates=[:ETH, :BTC].find_all do |b| 
+    rates=[:USDT, :ETH, :BTC].find_all do |b| 
       next false unless b != coin
       begin
         Trex.ticker("#{b}-#{coin}")
@@ -91,7 +93,8 @@ def intratrage market
               rate:   rates[0][:ask],
               usd:    l=usd(m, rates[0][:ask]) 
             },
-      pct:  h/l.to_f
+      pct:  h/l.to_f,
+      :'btc-rate' => btc_rate
     }
   end
 end

@@ -1,0 +1,28 @@
+#!/usr/bin/env ruby
+
+require 'socket'
+require 'json'
+
+class TrexService < TCPServer
+  def initialize port=4567, host="0.0.0.0"
+    super host,port
+  end
+  
+  def run
+    while c=accept
+      Thread.start(c) do |c|
+        while cmd=c.gets
+          STDOUT.puts cmd
+          c.write `#{cmd.strip}`
+          c.flush
+        end
+
+        c.write({status: 1}.to_json)
+        c.flush
+      end
+    end
+  end
+end
+
+s = TrexService.new
+s.run

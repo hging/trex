@@ -1,0 +1,108 @@
+#!/usr/bin/env ruby
+require 'json'
+
+def wait_order uuid
+  return true
+  c = 0
+  loop do
+    cmd = "./bin/order #{ARGV[0]} --status=#{uuid}"
+    j   = JSON.parse(`#{cmd}`)
+    
+    break if j['result']['state'] == 'closed'
+    
+    c+=1
+    
+    sleep 1
+  end
+end
+
+def order type, market, rate
+  cmd = "./bin/order #{ARGV[0]} --#{type} --amount=#{all} --rate=#{rate}"
+  puts cmd
+  return "foo"
+  
+  j = JSON.parse(`#{cmd}`)
+  if j['err']
+    
+    return
+  end
+  
+  j['result']['uuid']
+end
+
+def buy market, rate
+  unless uuid = order(:buy, market, rate)
+    return
+  end
+  
+  wait_order uuid
+end
+
+def sell market, rate
+  unless uuid = order(:sell, market, rate)
+    return
+  end
+  
+  wait_order uuid
+end
+
+def execute l, h
+  buy  l['market'], l['rate']
+  sell h['market'], h['rate']
+end
+
+def balance coin
+  j = JSON.parse(`bin/order #{ARGV[0]} --balance=#{coin}`)
+  unless j['err']
+    return j['result']['total']
+  end
+  
+  nil
+end
+
+def intratrage coin
+  cmd = "./bin/market -i --market=BTC-#{coin.to_s.upcase}"
+  j = JSON.parse(`#{cmd}`)
+  unless j['err']
+    return j['result']['low'], j['result']['high'], j['result']['pct'], j['result']['btc-rate']
+  end
+end
+
+def run coin
+  start = balance(:usdt)
+
+  t=Thread.new do
+  low, high, pct, _ = intratrage(:eth)
+
+  eth = {
+    low: low,
+    high: high,
+    pct: pct
+  }
+  end
+
+  low, high, pct, btc_rate = intratrage(coin)
+  eth = t.join
+  
+  e = nil
+  
+  if high['market'] == "USDT-#{coin}"
+    execute(low,high) if (e=(((start*0.9975)*pct)*0.9975)) > start
+  elsif high['market'] == "BTC-#{coin}"
+    if (e=((((start*0.9975)*pct)*0.9975)*0.9975)) > start
+      execute(low,high) 
+      sell "USDT-BTC", btc_rate    
+    end
+  elsif high['market'] == "ETH-#{coin}"
+    if (e=((((start*0.9975)*pct)*0.9975)*0.9975)) > start
+      execute(low,high) 
+      if eth[:high]['market'] != "USDT-ETH"
+        sell "USDT-BTC", btc_rate
+      end
+    end
+  end
+  
+  p [start, e]
+end
+
+run ARGV[1]
