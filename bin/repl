@@ -47,16 +47,7 @@ class Client < TCPSocket
   
     Thread.new do
       loop do
-        buff = []
-        loop do
-          io, _ = IO.select([self],[],[],0)
-          if io and io[0]
-            buff << io[0].recv(1)
-          else
-            process buff.join().strip unless buff.empty?
-            break
-          end
-        end
+        process gets.strip
       end
     end
   end
@@ -147,6 +138,14 @@ class Client < TCPSocket
         @c.run
       end
     end  
+  end
+  
+  def updates &b
+    @b=b    
+    queue.push('tick') do |*o|
+      b.call *o
+      updates &@b
+    end
   end
 end
 

@@ -406,7 +406,7 @@ class << self
     
     puts "populating..."
     
-    ['USDT-BTC', 'USDT-ETH', 'USDT-LTC'].map do |m|
+    ['USDT-BTC', 'BTC-AEON', 'USDT-LTC'].map do |m|
       Thread.new do
         markets[m] = Market.new(m)
       end
@@ -479,30 +479,43 @@ class << self
             end
             
             if (lvl=markets[name].flash_level) > 0
-              msg = JSON.pretty_generate({
+              msg = {
                 status: 'flash',
                 result: {
                   market: name,
                   level:  lvl,
-                  rates:   {
-                    ema:  ema,
-                    last: book.last,
-                    bid:  book.bid,
-                    ask:  book.ask
-                  },
+                  ema: ema,
+                  tick: tick(name)['result'],
                   type:  'flash'
                 }
-              })
+              }.to_json
                 
-              clients.each do |c|
-                Thread.new do
-                  c.safe_puts(msg)
+              Thread.new do
+                clients.each do |c|
+                  begin
+                    c.safe_puts(msg)
+                  rescue
+                    clients.delete(c)
+                  end
                 end
               end
             end
             
             chart.update l
           end
+        
+          begin
+            obj = tick(name)
+            msg = obj.to_json
+            clients.each do |c|
+              begin
+                c.safe_puts msg
+              rescue
+                clients.delete c
+              end
+            end
+          rescue
+          end        
         end
         
         true
