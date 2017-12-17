@@ -1,3 +1,5 @@
+#!/usr/bin/env ruby
+
 require 'trex'
 require 'trex/socket_api'
 require 'grio/dsl'
