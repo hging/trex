@@ -1,0 +1,155 @@
+require 'socket'
+require 'json'
+Thread.abort_on_exception=true
+
+class Queue
+  def initialize
+    @h = {}
+  end
+  
+  def shift type, obj
+    if q=@h[type]
+      if cb=q.shift
+        cb.call obj
+      end
+    end
+  end
+  
+  def push type, &b
+    (@h[type] ||= []) << b
+    true
+  end
+end
+
+class Client < TCPSocket
+  def out *o
+    STDOUT.puts *o
+  end
+  
+  def process data
+    return if !data or data == ""
+    obj = JSON.parse(data)
+
+    if obj['status']
+      queue.shift obj['status'], obj
+    elsif obj['err']
+      out obj['backtrace']
+      out obj['info']
+      raise obj['err']
+    end
+  end
+  
+  attr_reader :queue
+  def run
+    @queue = Queue.new
+  
+    Thread.new do
+      loop do
+        buff = []
+        loop do
+          io, _ = IO.select([self],[],[],0)
+          if io and io[0]
+            buff << io[0].recv(1)
+          else
+            process buff.join().strip unless buff.empty?
+            break
+          end
+        end
+      end
+    end
+  end
+  
+  def balance coin=nil, market: nil, &b
+    if !coin and market
+      command({
+        type:   "balance",
+        params: {
+          market: market
+        }
+      })
+    elsif coin
+      command({
+        type:   "balance",
+        params: {
+          coin: coin.to_s.upcase
+        }
+      })
+    end
+    
+    queue.push('balance', &b)
+  end
+  
+  def tick market=nil, &b
+    command({
+      type: 'tick',
+      params: {
+        market: market
+      }
+    })
+    
+    queue.push "tick", &b
+  end
+  
+  def candle market=nil, &b
+    command({
+      type: 'candle',
+      params: {
+        market: market
+      }
+    })
+    
+    queue.push "candle", &b
+  end  
+  
+  def status uuid, &b
+    command({
+      type: 'status',
+      params: {
+        uuid: uuid
+      }
+    })
+    
+    queue.push "status", &b
+  end
+  
+  def order market: nil, type: nil, amount: nil, limit: nil
+    command({
+      type: 'order',
+      params: {
+        market: market,
+        limit:  limit,
+        amount: amount,
+        type:   type
+      }  
+    })
+    
+    queue.push('order', &b)
+  end
+  
+  def flash &b
+    queue.push 'flash' do |obj|
+      b.call obj
+      flash &b
+    end
+  end
+  
+  def command obj
+    puts obj.to_json
+  end
+  
+  def self.repl ins
+    class << ins
+      attr_reader :c
+      def connect h=nil,p=nil
+        @c = Client.new((h || '0.0.0.0'), (p || 2222))
+        @c.run
+      end
+    end  
+  end
+end
+
+if __FILE__ == $0
+  require 'pry'
+  Client.repl self
+  Pry.start
+end

@@ -1,0 +1,531 @@
+require 'trex'
+require 'trex/socket_api'
+require 'grio/dsl'
+
+require 'moving_average'
+
+module Enumerable
+  def every(n)
+    (n - 1).step(self.size - 1, n).map { |i| self[i] }
+  end
+end
+
+class Commands
+  def perform ins, socket, req
+    send req['type'], ins, socket, req
+  rescue => e
+    {err: "#{e}", backtrace: e.backtrace}
+  end
+  
+  def tick ins, socket, req
+    m = (req['params']['market'] || socket.active)    
+    if m and ins.markets[m]        
+      obj = ins.tick(m)
+      obj[:status] = "tick"
+    else
+      obj = {status: 'active', err: "No active (valid) market."}
+    end
+    
+    obj
+  end
+
+  def candle ins, socket, req
+    m   = (ins.markets[req['params']['market']] || ins.markets[socket.active])
+    
+    if m
+      obj = {
+        status: 'candle',
+        result: m.chart.candle.to_h
+      }
+    else
+      obj = {status: 'candle', err: "No active (valid) market."}
+    end
+  end
+ 
+  def balance ins,socket,req
+    m   = (ins.markets[req['params']['market']] || ins.markets[socket.active])
+
+    if m
+      obj = m.get_balances
+    else
+      obj = {status: 'balance', err: "No active (valid) market."}
+    end
+  end
+
+  def active ins, socket, req
+    if m = req['params']['market']
+      socket.active = m
+      
+      if ins.markets[socket.active]
+        obj = {status: 'active', result: true}
+      else
+        obj = {status: 'active', err: "Bad market name."}
+      end
+    else
+      obj = {status: "active?", result: socket.active}
+    end
+  end
+    
+  def order ins, socket, req
+    params = req['params']
+    m      = params['market'] || socket.active
+    type   = params['type']
+      
+    if !ins.markets[m] or !type
+      obj = {
+        status: 'order',
+        err:    "bad values for order.",
+        info:   {
+          market: m,
+          type:   t,
+        }
+      }
+    else
+      rate, amt = params['limit'], params['amount']
+      obj = ins.markets[m].order type, limit: rate, amount: amt
+    end
+  end
+    
+  def status ins, socket, req
+    obj = {
+      status: 'status',
+      result: o=Trex::Order.get(Trex.env[:account], uuid=req['params']['uuid']).to_h,
+      info: {
+        uuid: uuid
+      }
+    }
+  end  
+end
+
+class ChartBuffer
+  attr_reader :market, :interval
+  def initialize market, interval=:min
+    case interval
+    when :hour
+      @interval = 60
+    when :min
+      @interval = 1
+    when :day
+      @interval = 1*60*24
+    end
+    
+    @data = Trex.get_ticks(market)
+  end
+  
+  attr_reader :candle
+  def update r, close=false
+    return @candle if !r
+    
+    @candle ||= Trex::Market::Tick.new
+    
+    @candle.close = r
+    @candle.open  = r if !@candle.open     
+    @candle.high  = r if !@candle.high or (r > @candle.high)
+    @candle.low   = r if !@candle.low  or (r < @candle.low)
+    
+    if close
+      @data.shift
+      @data << @candle
+      @candle = nil
+      update r
+    end
+    
+    @candle
+  end
+  
+  def ma periods, type
+    candle_data(periods).map do |c|
+      (c.open + c.close + c.high + c.low) / 4.0
+    end.send type
+  end
+
+  def ema periods
+    ma periods, :ema  
+  end
+
+  def sma periods
+    ma periods, :sma
+  end
+
+  def smma periods
+    ma periods, :smma
+  end
+  
+  def ema12
+    ema 12
+  end
+  
+  def ema26
+    ema 26
+  end
+  
+  def candle_data periods, type=nil
+    a = @data.every(interval)[(-1*periods)..-1]
+    if type
+      a.map do |c|
+        c[type] 
+      end
+    else
+      a
+    end
+  end
+  
+  def highs periods
+    candle_data(periods, :high)
+  end 
+
+  def lows periods
+    candle_data(periods, :low)
+  end 
+end
+
+class Market
+  attr_reader :name, :balances, :account, :base, :coin
+  attr_accessor :chart, :book, :flash_level
+  def initialize name
+    @name        = name
+    
+    @base, @coin = name.split("-").map do |c| c.upcase.to_sym end
+    
+    @chart       = ChartBuffer.new(name) 
+    @flash_level = 0
+    
+    @account = Trex.env[:account]
+    
+    update_balances
+  end
+  
+  def update_balances
+    @balances = {
+      base: account.balance(base),
+      coin: account.balance(coin)
+    }
+    
+    {
+      status: 'update_balances',
+      result: @balances.to_h
+    }  
+  rescue => e
+    {
+      err: "#{e}",
+      status: 'update_balances'
+    }
+  end
+  
+  def get_balances    
+    {
+      status: 'balance',
+      result: {
+        market: name,
+        base: @balances[:base].to_h,
+        coin: @balances[:coin].to_h
+      }
+    }
+  rescue => e
+    {
+      err: "#{e}",
+      status: "balance"
+    }
+  end
+  
+  def market_order_rate amt, type
+    rate = book.rate_at amt, type
+  end
+  
+  def market_order_amount type
+    if type == :bid
+      amt = book.amt_for balances[:base].avail, type
+    else
+      amt = balances[:coin].avail
+    end
+  end
+  
+  def market_order_rates
+    {
+      bid: {
+        amount: amt=market_order_amount(:bid),
+        rate:   r=market_order_rate(amt, :bid),
+        price:  amt*r,
+      },
+      ask: {
+        amount: amt=market_order_amount(:ask),
+        rate:   r=market_order_rate(amt, :ask),
+        price:  amt*r,
+      }
+    }  
+  end
+  
+  def get_market_order_rates
+    {
+      status: 'get_market_order_rates',
+      result: market_order_rates
+    }
+  rescue => e
+    {
+      err: "#{e}",
+      status: 'get_market_order_rates'
+    }
+  end
+  
+  def order type, limit: nil, amount: nil
+    uuid = nil
+    t,a,r = type, nil, nil
+    
+    case type
+    when :market_sell
+      obj = market_order_rates[:ask]
+      t = :sell
+      a = obj[:amount]
+      r = obj[:rate]
+    when :market_buy
+      obj = market_order_rates[:bid]
+      t = :buy
+      a = obj[:amount]
+      r = obj[:rate]    
+    when :sell
+      a = (amount || balances[:coin].avail)
+      r = limit || book.diff
+    when :buy
+      a = (amount || balances[:coin].avail)
+      r = limit || book.diff
+    end
+    
+    order = account.send(t, name, a, r)
+    
+    {
+      status: 'order',
+      result: order.to_h
+    }
+  rescue => e
+    {
+      err: "#{e}",
+      status: 'order',
+      info: {
+        type:   type,
+        limit:  limit,
+        amount: amount
+      }
+    }
+  end
+end
+
+module Client
+  attr_accessor :active, :cancel_on_disconnect, :blocked_write
+  attr_reader :sells, :buys
+  def block_write
+    @blocked_write = true
+  end
+  def unblock_write
+    @blocked_write = false
+  end  
+  
+  def safe_puts *o
+    until !blocked_write or closed?;end
+    return if closed?
+    block_write
+    puts *o
+    unblock_write
+  end
+end
+
+class << self
+  attr_reader :markets, :books, :clients
+  
+  def header
+    puts `clear`
+    puts 'BTC-AEON'
+  end
+  
+  def view market
+    @market = market
+  end
+  
+  def tick m=@market.name, period=nil
+    market = markets[m]
+    b      = market.book
+    
+    {
+      status: 'tick',
+      result: {
+        market:       market.name,
+        balances:     {
+                        base: market.balances[:base].to_h,
+                        coin: market.balances[:coin].to_h
+                      },
+        bid:          b.high_bid,
+        ask:          b.low_ask,
+        last:         b.last,
+        diff:         b.diff,
+        ema12:        market.chart.ema12,
+        ema26:        market.chart.ema26,
+        market_order: market.market_order_rates,
+        flash_level:  market.flash_level
+      }
+    }
+  rescue => e
+    {
+      err: "#{e}",
+      backtrace: e.backtrace,
+      status: 'tick'
+    }
+  end
+
+  def parse_data socket,data
+    until !socket.blocked_write or socket.closed? or !clients.index(socket); end
+    
+    return if socket.closed? or !clients.index(socket)
+    
+    socket.block_write
+    
+    req = {}
+    begin
+      req = JSON.parse(data.strip)     
+    rescue => e
+      socket.puts JSON.pretty_generate({err: 'JSON Parse Error', info: data})
+      return
+    end
+    
+    obj = @commands.perform self, socket, req    
+    
+    socket.puts JSON.pretty_generate(obj)     
+    socket.unblock_write
+  rescue => e
+    begin
+      socket.puts JSON.pretty_generate({err: "#{e}", backtrace: e.backtrace})
+      socket.unblock_write
+    rescue => e
+      clients.delete socket
+    end
+  end
+
+  def run
+    @markets  = {}
+    @commands = Commands.new
+    
+    puts "populating..."
+    
+    ['USDT-BTC', 'USDT-ETH', 'USDT-LTC'].map do |m|
+      Thread.new do
+        markets[m] = Market.new(m)
+      end
+    end.each do |t| t.join end
+    
+    @market = markets["USDT-BTC"]
+    
+    @clients = []
+    
+    Trex.run do
+      puts "Trex::Mainloop."
+      
+      grio.socket.serve "0.0.0.0", 2222 do |socket|
+        clients << socket
+        
+        socket.extend Client
+        
+        socket.active = @market.name
+        
+        socket.listen do |data|
+          Thread.new do
+            parse_data socket, data
+          end
+        end
+      end
+  
+
+      Trex.init
+  
+      Trex.socket.order_books(*markets.keys) do |book, name, state|
+        if !markets[name].book
+          markets[name].book = book
+        
+          book.bids.clear
+          book.asks.clear
+          book.trades.clear
+          
+          bk = Trex.book name, "both" 
+          
+          bk["buy"].each do |b|
+            b.keys.each do |k| b[:"#{k}"]= b[k] end
+            book.bids[b[:Rate]] = Trex::SocketAPI::Entry.from_obj(:bid, b)
+          end
+          
+          bk["sell"].each do |b|
+            b.keys.each do |k| b[:"#{k}"]= b[k] end
+            book.asks[b[:Rate]] = Trex::SocketAPI::Entry.from_obj(:ask, b)
+          end
+        else
+          chart = markets[name].chart
+          l     = book.last
+          
+          if l
+            ema = chart.ema 3
+            # flash price drops
+            if l < ema*0.70
+              markets[name].flash_level = 30
+            elsif l < ema*0.85
+              markets[name].flash_level = 15
+            elsif l < ema*0.90
+              markets[name].flash_level = 10
+            elsif l < ema*0.95
+              markets[name].flash_level = 5
+            elsif l < ema*0.98
+              markets[name].flash_level = 2  
+            elsif l < ema*0.99
+              markets[name].flash_level = 1              
+            else
+              markets[name].flash_level = 0
+            end
+            
+            if (lvl=markets[name].flash_level) > 0
+              msg = JSON.pretty_generate({
+                status: 'flash',
+                result: {
+                  market: name,
+                  level:  lvl,
+                  rates:   {
+                    ema:  ema,
+                    last: book.last,
+                    bid:  book.bid,
+                    ask:  book.ask
+                  },
+                  type:  'flash'
+                }
+              })
+                
+              clients.each do |c|
+                Thread.new do
+                  c.safe_puts(msg)
+                end
+              end
+            end
+            
+            chart.update l
+          end
+        end
+        
+        true
+      end
+      
+      Trex.timeout 111 do
+        header
+        
+        puts JSON.pretty_generate(tick)
+        
+        true
+      end
+      
+      Trex.idle do
+
+      end
+      
+      Trex.timeout 60000 do
+        markets.each_pair do |k,v| 
+          v.chart.update markets[k].book.last, true
+        end
+      end
+    end
+  end
+end
+
+
+run
