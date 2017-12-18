@@ -11,7 +11,7 @@ class Queue
   
   def shift type, obj
     if q=@h[type]
-      if cb=q.shift
+      if cb = q.shift
         cb.call obj
       end
     end
@@ -29,8 +29,9 @@ class Client < TCPSocket
   end
   
   def process data
-    return if !data or data == ""
-    obj = JSON.parse(data)
+    return if !data or data.strip == ""
+
+    obj = JSON.parse(data, allow_nan: true)
 
     if obj['status']
       queue.shift obj['status'], obj
@@ -47,7 +48,9 @@ class Client < TCPSocket
   
     Thread.new do
       loop do
-        process gets.strip
+        s = gets("\n")
+        process s.strip if s
+        flush if s
       end
     end
   end
@@ -119,11 +122,35 @@ class Client < TCPSocket
     queue.push('order', &b)
   end
   
+  def subscribe market, &b
+    command({
+      type: 'subscribe',
+      params: {
+        market: market
+      }
+    })
+    
+    queue.push('subscribe', &b)
+  end
+  
   def flash &b
     queue.push 'flash' do |obj|
       b.call obj
       flash &b
     end
+  end
+  
+  def history market, periods, interval: :min, &b
+    command({
+      type:   'history',
+      params: {
+        market:   market,
+        interval: interval,
+        periods: periods
+      }
+    })
+    
+    queue.push 'history', &b
   end
   
   def command obj
@@ -141,10 +168,9 @@ class Client < TCPSocket
   end
   
   def updates &b
-    @b=b    
     queue.push('tick') do |*o|
-      b.call *o
-      updates &@b
+      b.call *o if b
+      updates &b
     end
   end
 end

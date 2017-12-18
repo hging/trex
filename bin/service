@@ -96,6 +96,113 @@ class Commands
         uuid: uuid
       }
     }
+  end
+  
+  def history ins, socket, req
+    o = req['params']
+    
+    market   = o['market']
+    interval = (o['interval'] || :min).to_sym
+    
+    unless [:day, :min, :hour].index(interval)
+      return({
+        status: "history",
+        err: "bad value for interval",
+        info: {
+          market: market,
+          interval: interval
+        }
+      })
+    end    
+    
+    case interval
+    when :min
+      interval = 1
+    when :hour
+      interval = 60
+    when :day
+      interval = 60*24
+    end
+    
+    unless periods = o['periods']
+      return({
+        status: "history",
+        err: "must specifiy periods",
+        info: {
+          market: market,
+          periods: periods
+        }
+      })
+    end
+    
+    if m=ins.markets[market]
+      all    = m.chart.candle_data(0).every(interval)[(-1*(periods+26))..-1].map do |c| c.close end
+      p interval
+      p periods
+      p (-1*(periods+26))
+
+      p all.length
+      pos    = 26
+  
+      ema12=[]
+      ema26=[]
+  
+    
+      e12  = all[14..-1]
+      e26  = all[0..-1]
+      rates = all[26..-1]
+      c = 0
+      
+      rates.map do |q|
+        ema12 << e12.ema(11,12)
+        ema26 << e26.ema(25,26)
+        e12.shift
+        e26.shift
+        c+=1
+        if c % 2 == 0
+        pos += 1
+      
+        pos+1 > all.length-1 ? (next) : (true)     
+        end
+      end
+            
+      
+      {
+        status: 'history',
+        result: {
+          rates: m.chart.candle_data(0).every(interval)[(-1*periods)..-1].map do |t| t.to_h end,
+          ema12: ema12,
+          ema26: ema26
+        }
+      }
+    else
+      {
+        status: "history",
+        err: "No market for: #{market}.",
+        info: {
+          market: market
+        }
+      }
+    end
+  end
+  
+  def subscribe ins, socket, req
+    ins.ensure_market m=req['params']['market']
+    
+    unless socket.markets.index(m)
+      socket.markets << m
+    end
+    
+    obj = {
+      status: 'subscribe',
+      result: true
+    }
+  rescue => e
+    obj = {
+      status: 'subscribe',
+      err: "#{e}",
+      info: req['params']['market']
+    }
   end  
 end
 
@@ -312,21 +419,16 @@ class Market
 end
 
 module Client
-  attr_accessor :active, :cancel_on_disconnect, :blocked_write
+  attr_accessor :active, :markets
   attr_reader :sells, :buys
-  def block_write
-    @blocked_write = true
-  end
-  def unblock_write
-    @blocked_write = false
-  end  
   
-  def safe_puts *o
-    until !blocked_write or closed?;end
-    return if closed?
-    block_write
-    puts *o
-    unblock_write
+  def subscribed_to? name
+    @markets.index(name)
+  end
+  
+  def on_err e
+    STDOUT.puts "#{self} disconnected."
+    false
   end
 end
 
@@ -373,44 +475,143 @@ class << self
   end
 
   def parse_data socket,data
-    until !socket.blocked_write or socket.closed? or !clients.index(socket); end
-    
     return if socket.closed? or !clients.index(socket)
-    
-    socket.block_write
     
     req = {}
     begin
       req = JSON.parse(data.strip)     
     rescue => e
-      socket.puts JSON.pretty_generate({err: 'JSON Parse Error', info: data})
+      socket.puts JSON.dump({err: 'JSON Parse Error', info: data})
       return
     end
     
     obj = @commands.perform self, socket, req    
     
-    socket.puts JSON.pretty_generate(obj)     
-    socket.unblock_write
+    socket.puts JSON.dump(obj)     
   rescue => e
     begin
-      socket.puts JSON.pretty_generate({err: "#{e}", backtrace: e.backtrace})
-      socket.unblock_write
+      socket.puts JSON.dump({err: "#{e}", backtrace: e.backtrace})
     rescue => e
+      socket.close
       clients.delete socket
     end
   end
+  
+  def ensure_market name
+    puts "populating..."
+    
+    markets[name] ||= Market.new(name)
+    
+    Trex.socket.order_books(name) do |book, name, state|
+      if !markets[name].book
+        markets[name].book = book
+      
+        book.bids.clear
+        book.asks.clear
+        book.trades.clear
+        
+        bk = Trex.book name, "both" 
+        
+        bk["buy"].each do |b|
+          b.keys.each do |k| b[:"#{k}"]= b[k] end
+          book.bids[b[:Rate]] = Trex::SocketAPI::Entry.from_obj(:bid, b)
+        end
+        
+        bk["sell"].each do |b|
+          b.keys.each do |k| b[:"#{k}"]= b[k] end
+          book.asks[b[:Rate]] = Trex::SocketAPI::Entry.from_obj(:ask, b)
+        end
+      else
+        chart = markets[name].chart
+        l     = book.last
+        
+        if l
+          ema = chart.ema 3
+          # flash price drops
+          if l < ema*0.70
+            markets[name].flash_level = 30
+          elsif l < ema*0.85
+            markets[name].flash_level = 15
+          elsif l < ema*0.90
+            markets[name].flash_level = 10
+          elsif l < ema*0.95
+            markets[name].flash_level = 5
+          elsif l < ema*0.98
+            markets[name].flash_level = 2  
+          elsif l < ema*0.99
+            markets[name].flash_level = 1              
+          else
+            markets[name].flash_level = 0
+          end
+          
+          if (lvl=markets[name].flash_level) > 0
+            msg = {
+              status: 'flash',
+              result: {
+                market: name,
+                level:  lvl,
+                ema: ema,
+                tick: tick(name)['result'],
+                type:  'flash'
+              }
+            }.to_json(allow_nan: true)
+              
+            clients.each do |c|
+              begin
+                c.puts msg if c.subscribed_to?(name)
+              rescue
+                clients.delete c
+                c.close
+              end
+            end
+          end
+          
+          chart.update l
+        end
+        
+        obj = tick(name)
+        msg = obj.to_json(allow_nan: true)      
 
+        clients.each do |c|
+          begin
+            c.puts msg if c.subscribed_to?(name)
+          rescue
+            clients.delete c
+            c.close
+          end
+        end
+      end
+      
+      true
+    end    
+  end
+  
+  def serve!
+    grio.socket.serve "0.0.0.0", 2222 do |socket|
+      socket.extend Client
+      socket.active  = @market.name
+      socket.markets = []
+      
+      clients << socket
+      
+      begin        
+        socket.listen do |data|
+          parse_data socket, data
+        end
+      rescue
+        clients.delete socket
+        socket.close
+      end
+    end   
+  end
+  
   def run
     @markets  = {}
     @commands = Commands.new
     
-    puts "populating..."
+    serve!       
     
-    ['USDT-BTC', 'BTC-AEON', 'USDT-LTC'].map do |m|
-      Thread.new do
-        markets[m] = Market.new(m)
-      end
-    end.each do |t| t.join end
+    ensure_market "USDT-BTC"
     
     @market = markets["USDT-BTC"]
     
@@ -418,128 +619,40 @@ class << self
     
     Trex.run do
       puts "Trex::Mainloop."
-      
-      grio.socket.serve "0.0.0.0", 2222 do |socket|
-        clients << socket
-        
-        socket.extend Client
-        
-        socket.active = @market.name
-        
-        socket.listen do |data|
-          Thread.new do
-            parse_data socket, data
-          end
-        end
-      end
-  
-
       Trex.init
   
-      Trex.socket.order_books(*markets.keys) do |book, name, state|
-        if !markets[name].book
-          markets[name].book = book
-        
-          book.bids.clear
-          book.asks.clear
-          book.trades.clear
-          
-          bk = Trex.book name, "both" 
-          
-          bk["buy"].each do |b|
-            b.keys.each do |k| b[:"#{k}"]= b[k] end
-            book.bids[b[:Rate]] = Trex::SocketAPI::Entry.from_obj(:bid, b)
-          end
-          
-          bk["sell"].each do |b|
-            b.keys.each do |k| b[:"#{k}"]= b[k] end
-            book.asks[b[:Rate]] = Trex::SocketAPI::Entry.from_obj(:ask, b)
-          end
-        else
-          chart = markets[name].chart
-          l     = book.last
-          
-          if l
-            ema = chart.ema 3
-            # flash price drops
-            if l < ema*0.70
-              markets[name].flash_level = 30
-            elsif l < ema*0.85
-              markets[name].flash_level = 15
-            elsif l < ema*0.90
-              markets[name].flash_level = 10
-            elsif l < ema*0.95
-              markets[name].flash_level = 5
-            elsif l < ema*0.98
-              markets[name].flash_level = 2  
-            elsif l < ema*0.99
-              markets[name].flash_level = 1              
-            else
-              markets[name].flash_level = 0
-            end
-            
-            if (lvl=markets[name].flash_level) > 0
-              msg = {
-                status: 'flash',
-                result: {
-                  market: name,
-                  level:  lvl,
-                  ema: ema,
-                  tick: tick(name)['result'],
-                  type:  'flash'
-                }
-              }.to_json
-                
-              Thread.new do
-                clients.each do |c|
-                  begin
-                    c.safe_puts(msg)
-                  rescue
-                    clients.delete(c)
-                  end
-                end
-              end
-            end
-            
-            chart.update l
-          end
-        
-          begin
-            obj = tick(name)
-            msg = obj.to_json
-            clients.each do |c|
-              begin
-                c.safe_puts msg
-              rescue
-                clients.delete c
-              end
-            end
-          rescue
-          end        
-        end
-        
-        true
-      end
-      
-      Trex.timeout 111 do
-        header
-        
-        puts JSON.pretty_generate(tick)
-        
-        true
-      end
+      connect_ws
       
       Trex.idle do
-
+        if Trex.socket.singleton.closed?
+          connect_ws
+          sleep 1
+        end
       end
       
       Trex.timeout 60000 do
-        markets.each_pair do |k,v| 
-          v.chart.update markets[k].book.last, true
+        markets.each_pair do |k,v|
+          next unless book = markets[k].book 
+          v.chart.update book.last, true
         end
       end
     end
   end
+  
+  def connect_ws
+    markets.each_pair do |k,v|
+      v.book = nil
+    end
+    
+    Trex.socket.singleton.on :close do
+      puts :closed
+      sleep 1
+      connect_ws
+    end 
+  end
+  
+rescue => IOError
+  clients.find_all do |c| c.closed? end.each do |c| clients.delete c end
 end
 
 
