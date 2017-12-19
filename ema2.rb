@@ -4,8 +4,8 @@ Client.repl self
 
 connect
 
-$c = 0.01
-$a = 20
+$c = 0.03
+$a = 60
 
 def order? r,e
   if r > e*1.005
@@ -18,27 +18,29 @@ def order? r,e
 end
 
 def buy r
+  return :hold if ($c*0.5) < 0.001
   $lb = r
   $a += (($c*0.5)/r)*0.9975
   $c = $c*0.5
-  :buy
+  [:buy, r]
 end
 
 $lb = nil
 def sell r
+      return :hold if ((($a*0.9)*r)*0.9975) < 0.001
       a = $a*0.1
       $c += (($a*0.9)*r)*0.9975    
       $a=a
-      :sell
+      [:sell, r]
 end
 
 c.subscribe "BTC-AEON" do
-  c.history "BTC-AEON", 120 do |h|
+  c.history "BTC-AEON", ARGV[0].to_i do |h|
     p h
     all = h['result']['rates'].map do |c| c['close'] end
-    
-    chart = all[-61..-1]
-   
+    p all.length
+    chart = all[12..-1]
+  
     ema = []
     p [$c, $a, $c*18500]
     offset = 0
@@ -54,9 +56,8 @@ c.subscribe "BTC-AEON" do
       bsh << order?(r,e)
       lr=r
     end
-    
-    p ema
-    p [$c, $a, ($c*18500)+($a*lr*0.9975)]
+    p bsh
+    p [$c, $a, ($c*18500)+(($a*lr*0.9975)*18500)]
   end
 end
 

@@ -170,7 +170,7 @@ class Commands
       {
         status: 'history',
         result: {
-          rates: m.chart.candle_data(0).every(interval)[(-1*periods)..-1].map do |t| t.to_h end,
+          rates: m.chart.candle_data(0)[(-1*periods)..-1].map do |t| t.to_h end,
           ema12: ema12,
           ema26: ema26
         }

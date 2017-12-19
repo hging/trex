@@ -1,5 +1,45 @@
 load "./bin/repl"
 
+  def sim hours, &b
+    @all = Trex.get_ticks(market)[-((60*(hours))+26)..-1].map do |q| q.close end
+    @period = @all[45..(((hours)*60)+26)].find_all do |q| q end   
+    b.call if b
+  end
+
+  def sell?
+    @sell
+  end
+  
+  attr_accessor :sell
+  
+  def update
+    if !@period
+      sim 1.5
+    end
+  
+    if !ARGV.index("-s")
+      return unless rt = (book.last || Trex.ticker(market).last)
+      @period.shift 
+      @period << rt
+    end
+    
+    chart = @period[26..-1]
+    pos   = 0
+    
+    mins = 0
+    ema = chart.find_all do |f| f end.map do |q|
+      mins +=1
+      ema12 = @period[(14+pos)..(pos+26)]
+      ema20 = @period[ (0+pos)..(pos+26)]
+    
+      pos += 1
+    
+      pos+1 > @period.length-1 ? (next) : (true)
+    
+      {
+        ema12:             e12=ema12.map do |z| z end.ema,
+        ema20:             e20=ema20.map do |z| z end.ema,
+
 class << self
   def signal a,b
     return 0 if (a <=> b) == 0
