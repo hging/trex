@@ -1,66 +1,138 @@
 require 'moving_average'
 load "./bin/repl"
-Client.repl self
 
-connect
+class << self
+  attr_reader :ema, :chart, :sc,:sa,:su, :ea,:ec,:eu, :bsh, :all, :lr, :base, :amount, :e
 
-$c = 0.03
-$a = 60
-
-def order? r,e
-  if r > e*1.005
-    sell r
-  elsif r < e*0.995
-    buy r
-  else
-    :hold
-  end
-end
-
-def buy r
-  return :hold if ($c*0.5) < 0.001
-  $lb = r
-  $a += (($c*0.5)/r)*0.9975
-  $c = $c*0.5
-  [:buy, r]
-end
-
-$lb = nil
-def sell r
-      return :hold if ((($a*0.9)*r)*0.9975) < 0.001
-      a = $a*0.1
-      $c += (($a*0.9)*r)*0.9975    
-      $a=a
-      [:sell, r]
-end
-
-c.subscribe "BTC-AEON" do
-  c.history "BTC-AEON", ARGV[0].to_i do |h|
-    p h
-    all = h['result']['rates'].map do |c| c['close'] end
-    p all.length
-    chart = all[12..-1]
-  
-    ema = []
-    p [$c, $a, $c*18500]
-    offset = 0
-    lr=nil
-    bsh = []
-    chart.each do |r|
-      $lb ||= r
-      
-      p rng=offset..(offset+12)
-      ema << e=all[rng].ema
-      offset += 1
-   
-      bsh << order?(r,e)
-      lr=r
+  def order? r,e
+    if r < e*0.995
+      send (ARGV.index("-r") ? :sell : :buy), r
+    elsif r > e*1.005
+      send (ARGV.index("-r") ? :buy : :sell), r
+    else
+      :hold
     end
-    p bsh
-    p [$c, $a, ($c*18500)+(($a*lr*0.9975)*18500)]
+  end
+
+  def buy r
+    return :hold if (base*0.5) < 0.001
+    
+    if ARGV.index("-s") or ARGV.index("-S")
+      @amount += ((base*0.5)/r)*0.9975
+      @base = base*0.5
+    else
+      # order!
+    end
+    [:buy, r]
+  end
+
+  def sell r
+    return :hold if (((amount*0.9)*r)*0.9975) < 0.001
+
+
+    if ARGV.index("-s") or ARGV.index("-S")
+      a = amount*0.1
+  
+      @base += ((amount*0.9)*r)*0.9975    
+      @amount = a
+    else
+      # order!
+    end
+    
+    [:sell, r]
+  end
+
+  attr_reader :market
+  def run
+    raise "No Market" unless @market = ARGV[0]
+    
+    ARGV[1] ||= 105
+  
+    Client.repl self
+
+    connect
+  
+    c.subscribe market do
+      c.history market, ARGV[1].to_i do |h|
+   
+        @all   = h['result']['rates'].map do |c| c['close'] end
+        @chart = all[12..-1]
+        @bsh   = []
+        @ema   = []
+        offset = 0
+        
+        chart.each do |r|
+          rng=offset..(offset+12)
+          ema << @e=all[rng].ema
+          offset += 1
+        end
+        
+        init
+      end
+    end
+    
+    main
+  end
+  
+  def main
+    until @init; end
+    
+    while true
+      sleep @period ||= 15
+      all.shift
+      chart.shift
+      chart << lr
+      all << lr
+      ema.shift
+      ema << e=all[-13..-1].ema 
+      Thread.pass
+    end  
+  end
+
+  def init
+    @base = 0.03
+    @amount = 60
+    
+    @lr=chart[0]
+    @sc,@sa,@su = [base, amount, (base*18500)+((amount*lr*0.9975)*18500)]
+  
+    @init = true
+  
+    if ARGV.index("-s")
+      chart.each_with_index do |r,i|
+        @e = ema[i]
+        
+        analyze({
+          'last' => @lr=r,
+        })
+        #sleep 0.111
+      end      
+    else
+      c.updates do |tick|
+      p tick
+        if !tick['err']
+          analyze tick['result'] if tick['result']['market'] == market
+        end
+      end
+    end
+  end
+
+  def report tick
+    print `clear`
+    puts JSON.pretty_generate(tick, allow_nan: true)
+    p [sc,sa,su]
+    p [@ec=base, @ea=amount, @eu=(base*18500)+((amount*lr*0.9975)*18500)]
+    p [ec/sc, ea/sa, eu/su]
+    p e
+  end
+  
+  def analyze tick
+    if o = order?(@lr=tick['last'], e)
+      bsh << o
+    end
+    
+    report tick
   end
 end
 
-while true
-  Thread.pass
-end
+run
