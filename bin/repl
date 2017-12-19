@@ -33,6 +33,7 @@ class Client < TCPSocket
 
     obj = JSON.parse(data, allow_nan: true)
 
+
     if obj['status']
       queue.shift obj['status'], obj
     elsif obj['err']

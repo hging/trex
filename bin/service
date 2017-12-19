@@ -187,16 +187,17 @@ class Commands
   end
   
   def subscribe ins, socket, req
-    ins.ensure_market m=req['params']['market']
+    ins.ensure_market m=req['params']['market'], socket
     
     unless socket.markets.index(m)
       socket.markets << m
     end
     
-    obj = {
-      status: 'subscribe',
-      result: true
+    {
+      status: 'async',
+      result: 'subscribe'
     }
+    
   rescue => e
     obj = {
       status: 'subscribe',
@@ -497,10 +498,31 @@ class << self
     end
   end
   
-  def ensure_market name
+  def ensure_market name, socket=nil
     puts "populating..."
     
-    markets[name] ||= Market.new(name)
+    begin
+      markets[name] ||= Market.new(name)
+    
+      if socket
+        socket.puts(JSON.dump(obj = {
+          status: 'subscribe',
+          result: {
+            market: name
+          }
+        }))
+      end
+    rescue => e
+      if socket
+        socket.puts(JSON.dump(obj = {
+          status: 'subscribe',
+          err: "#{e}",
+          info: {
+            market: name
+          }
+        }))
+      end
+    end
     
     Trex.socket.order_books(name) do |book, name, state|
       if !markets[name].book
