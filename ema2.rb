@@ -10,12 +10,13 @@ class << self
     elsif r > e*1.005
       send (ARGV.index("-r") ? :buy : :sell), r
     else
-      :hold
     end
   end
 
   def buy r
     return :hold if (base*0.5) < 0.001
+    
+    @buys += 1
     
     if ARGV.index("-s") or ARGV.index("-S")
       @amount += ((base*0.5)/r)*0.9975
@@ -27,6 +28,8 @@ class << self
   end
 
   def sell r
+    @sells += 1
+  
     return :hold if (((amount*0.9)*r)*0.9975) < 0.001
 
 
@@ -49,20 +52,20 @@ class << self
     ARGV[1] ||= 105
   
     Client.repl self
-
+    @ema_periods = ARGV[2].to_i ||= 12
     connect
   
     c.subscribe market do
       c.history market, ARGV[1].to_i do |h|
    
         @all   = h['result']['rates'].map do |c| c['close'] end
-        @chart = all[12..-1]
+        @chart = all[(@ema_periods-1)..-1]
         @bsh   = []
         @ema   = []
         offset = 0
         
         chart.each do |r|
-          rng=offset..(offset+12)
+          rng=offset..(offset+@ema_periods)
           ema << @e=all[rng].ema
           offset += 1
         end
@@ -78,13 +81,13 @@ class << self
     until @init; end
     
     while true
-      sleep @period ||= 15
+      sleep @s ||= 60
       all.shift
       chart.shift
       chart << lr
       all << lr
       ema.shift
-      ema << e=all[-13..-1].ema 
+      ema << e=all[-(@ema_periods)..-1].ema 
       Thread.pass
     end  
   end
@@ -92,6 +95,9 @@ class << self
   def init
     @base = 0.03
     @amount = 60
+    
+    @buys  = 0
+    @sells = 0
     
     @lr=chart[0]
     @sc,@sa,@su = [base, amount, (base*18500)+((amount*lr*0.9975)*18500)]
@@ -109,7 +115,6 @@ class << self
       end      
     else
       c.updates do |tick|
-      p tick
         if !tick['err']
           analyze tick['result'] if tick['result']['market'] == market
         end
@@ -128,7 +133,7 @@ class << self
   
   def analyze tick
     if o = order?(@lr=tick['last'], e)
-      bsh << o
+      bsh << o if o
     end
     
     report tick
