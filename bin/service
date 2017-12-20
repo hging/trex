@@ -205,6 +205,28 @@ class Commands
       info: req['params']['market']
     }
   end  
+  
+  def next_candle ins, socket, req
+    raise "no market param" unless m = req['params']['market']
+    raise "no subsribed market: #{m}" unless ins.markets[m]
+    
+    ins.markets[m].chart.on_candle(socket)
+    {
+      status: 'async',
+      result: 'next_candle',
+      info:   {
+        market: m
+      }
+    }
+  rescue => e
+    {
+      status: 'next_candle',
+      err:    "#{e}",
+      info:   {
+        market: m
+      }
+    }
+  end
 end
 
 class ChartBuffer
@@ -219,14 +241,27 @@ class ChartBuffer
       @interval = 1*60*24
     end
     
-    @data = Trex.get_ticks(market)
+    @data      = Trex.get_ticks(market)
+    @on_candle = []
   end
   
-  attr_reader :candle
+  attr_reader :candle, :last
+  def on_candle socket
+    @on_candle << socket
+  end
+  
   def update r, close=false
     return @candle if !r
     
-    @candle ||= Trex::Market::Tick.new
+    if !@candle 
+      @candle = Trex::Market::Tick.new
+      while socket = @on_candle.shift
+        socket.put_result('next_candle', {
+          current: candle.to_h,
+          last:    last.to_h
+        })
+      end
+    end
     
     @candle.close = r
     @candle.open  = r if !@candle.open     
@@ -236,6 +271,7 @@ class ChartBuffer
     if close
       @data.shift
       @data << @candle
+      @last = @candle
       @candle = nil
       update r
     end
@@ -287,6 +323,10 @@ class ChartBuffer
   def lows periods
     candle_data(periods, :low)
   end 
+  
+  def chart
+  
+  end
 end
 
 class Market
@@ -425,6 +465,13 @@ module Client
   
   def subscribed_to? name
     @markets.index(name)
+  end
+
+  def put_result status, result
+    puts JSON.dump({
+      status: status,
+      result: result
+    })
   end
   
   def on_err e

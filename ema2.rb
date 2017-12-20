@@ -1,6 +1,11 @@
 require 'moving_average'
 load "./bin/repl"
-
+require 'googlecharts'
+module Enumerable
+  def every(n)
+    (n - 1).step(self.size - 1, n).map { |i| self[i] }
+  end
+end
 class << self
   attr_reader :ema, :chart, :sc,:sa,:su, :ea,:ec,:eu, :bsh, :all, :lr, :base, :amount, :e
 
@@ -16,6 +21,7 @@ class << self
   def buy r
     return :hold if (base*0.5) < 0.001
     
+    @period_did_act = true
     @buys += 1
     
     if ARGV.index("-s") or ARGV.index("-S")
@@ -27,12 +33,12 @@ class << self
     [:buy, r]
   end
 
-  def sell r
-    @sells += 1
-  
+  def sell r  
     return :hold if (((amount*0.9)*r)*0.9975) < 0.001
 
-
+    @sells += 1
+    @period_did_act = true
+          
     if ARGV.index("-s") or ARGV.index("-S")
       a = amount*0.1
   
@@ -45,7 +51,7 @@ class << self
     [:sell, r]
   end
 
-  attr_reader :market
+  attr_reader :market, :usd
   def run
     raise "No Market" unless @market = ARGV[0]
     
@@ -81,13 +87,6 @@ class << self
     until @init; end
     
     while true
-      sleep @s ||= 60
-      all.shift
-      chart.shift
-      chart << lr
-      all << lr
-      ema.shift
-      ema << e=all[-(@ema_periods)..-1].ema 
       Thread.pass
     end  
   end
@@ -98,7 +97,7 @@ class << self
     
     @buys  = 0
     @sells = 0
-    
+    @usd   = []
     @lr=chart[0]
     @sc,@sa,@su = [base, amount, (base*18500)+((amount*lr*0.9975)*18500)]
   
@@ -106,13 +105,26 @@ class << self
   
     if ARGV.index("-s")
       chart.each_with_index do |r,i|
-        @e = ema[i]
+        e = ema[i]
+        
+        on_candle({
+            'current' => {
+              'close'  => r,
+              'ema'    => ema[i]=all[i..i+11].ema
+            },
+            
+            'last' => {
+              'close' => (i > 0 ? chart[i-1] : nil),
+              'ema'   => (i > 0 ? ema[i-1] : nil)
+            }
+        })
         
         analyze({
-          'last' => @lr=r,
+          'last' => r,
         })
         #sleep 0.111
       end      
+      puts render
     else
       c.updates do |tick|
         if !tick['err']
@@ -132,12 +144,51 @@ class << self
     p "Sells: #{@sells} Buys: #{@buys}"
   end
   
-  def analyze tick
-    if o = order?(@lr=tick['last'], e)
-      bsh << o if o
+  def period_did_act?
+    (@period == @last_period) and @period_did_act
+  end
+  
+  def on_candle c, shift=false
+    @last_period = @period ||=0
+    @period += 1
+    @period_did_act = false
+  
+    @e      = c['current']['ema']
+    @candle = c
+    
+    usd     << @eu=(base*18500)+((amount*lr*0.9975)*18500)
+    
+    if shift
+      usd.shift
+      ema.shift
+      chart.shift
+      chart   << c['current']['close']
     end
     
+    c
+  end
+  
+  def render
+require 'gruff'
+g = Gruff::Line.new
+
+g.title = 'Wow!  Look at this!'
+
+g.data :ema12, ema.map do |q| q*1000 end
+g.data :price, chart.map do |q| q*1000 end
+
+g.write('exciting.png')
+  end
+  
+  def analyze tick
+
+    if !period_did_act?
+      if o = order?(@lr=tick['last'], e)
+        bsh << o if o
+      end
+    end
     report tick
+  p [@last_period, @period, @period_did_act, e, @lr]
   end
 end
 

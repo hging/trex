@@ -154,6 +154,17 @@ class Client < TCPSocket
     queue.push 'history', &b
   end
   
+  def next_candle market, &b
+    command( {
+      type: 'next_candle',
+      params: {
+        market: market
+      }
+    })
+    
+    queue.push 'next_candle', &b
+  end
+  
   def command obj
     puts obj.to_json
   end
