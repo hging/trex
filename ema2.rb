@@ -128,7 +128,8 @@ class << self
     p [sc,sa,su]
     p [@ec=base, @ea=amount, @eu=(base*18500)+((amount*lr*0.9975)*18500)]
     p [ec/sc, ea/sa, eu/su]
-    p e
+    p [lr, e]
+    p "Sells: #{@sells} Buys: #{@buys}"
   end
   
   def analyze tick
