@@ -136,43 +136,30 @@ class Commands
     end
     
     if m=ins.markets[market]
-      all    = m.chart.candle_data(0).every(interval)[(-1*(periods+26))..-1].map do |c| c.close end
-      p interval
-      p periods
-      p (-1*(periods+26))
-
-      p all.length
+      all    = m.chart.candle_data(0)[(-1*(periods+26))..-1]
       pos    = 26
   
-      ema12=[]
-      ema26=[]
+      ema4  = []
+      ema12 = []
+      ema26 = []
   
-    
-      e12  = all[14..-1]
-      e26  = all[0..-1]
-      rates = all[26..-1]
+      rates = all[25..-1]
       c = 0
       
-      rates.map do |q|
-        ema12 << e12.ema(11,12)
-        ema26 << e26.ema(25,26)
-        e12.shift
-        e26.shift
-        c+=1
-        if c % 2 == 0
-        pos += 1
-      
-        pos+1 > all.length-1 ? (next) : (true)     
-        end
+      rates.each_with_index do |q, i|
+        ema12 << all[i..(i+11)].map do |t| t.close end.ema
+        ema26 << all[i..(i+25)].map do |t| t.close end.ema
+        ema4  << all[i..(i+3)].map do |t| t.close end.ema
       end
             
       
       {
         status: 'history',
         result: {
-          rates: m.chart.candle_data(0)[(-1*periods)..-1].map do |t| t.to_h end,
+          rates: rates.map do |t| t.to_h end,
           ema12: ema12,
-          ema26: ema26
+          ema26: ema26,
+          ema4:  ema4
         }
       }
     else

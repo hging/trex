@@ -9,21 +9,50 @@ end
 class << self
   attr_reader :ema, :chart, :sc,:sa,:su, :ea,:ec,:eu, :bsh, :all, :lr, :base, :amount, :e
 
-  def order? r,e
+  def reverse_ema r, e
     if r < e*0.995
       send (ARGV.index("-r") ? :sell : :buy), r
     elsif r > e*1.005
       send (ARGV.index("-r") ? :buy : :sell), r
     else
+    end  
+  end
+  
+  def rapid r, e
+    if @hold
+      if r > @last_buy*1.003
+        if (q=sell(r)) != :hold
+          @last_sell = r
+          q
+        end
+      end
+    else
+      if @last_sell
+        if r < @last_sell*0.997
+          if (q = buy(r)) != :hold
+            @last_buy = r
+            q
+          end
+        end
+      else
+        if (q = buy(r=0.00000328)) != :hold
+          @last_buy = r
+          q
+        end
+      end
     end
+  end
+
+  def order? r,e
+    send @strategy, r, e
   end
 
   def buy r
     return :hold if (base*0.5) < 0.001
-    
+    return :hold if @hold
     @period_did_act = true
     @buys += 1
-    
+    @hold = true
     if ARGV.index("-s") or ARGV.index("-S")
       @amount += ((base*0.5)/r)*0.9975
       @base = base*0.5
@@ -33,12 +62,13 @@ class << self
     [:buy, r]
   end
 
-  def sell r  
+  def sell r
+    return :hold unless @hold  
     return :hold if (((amount*0.9)*r)*0.9975) < 0.001
 
     @sells += 1
     @period_did_act = true
-          
+    @hold = false      
     if ARGV.index("-s") or ARGV.index("-S")
       a = amount*0.1
   
@@ -61,20 +91,22 @@ class << self
     @ema_periods = ARGV[2].to_i ||= 12
     connect
   
+    if !@btc_r
+      c.tick "USDT-BTC" do |tick|
+        if !tick['err']
+          @btc_r = tick['result']['last']
+        end
+      end
+    end
+  
+    until @btc_r; end
+  
     c.subscribe market do
       c.history market, ARGV[1].to_i do |h|
    
-        @all   = h['result']['rates'].map do |c| c['close'] end
-        @chart = all[(@ema_periods-1)..-1]
+        @chart = h['result']['rates'].map do |c| c['close'] end
+        @ema   = h['result']['ema12']
         @bsh   = []
-        @ema   = []
-        offset = 0
-        
-        chart.each do |r|
-          rng=offset..(offset+@ema_periods)
-          ema << @e=all[rng].ema
-          offset += 1
-        end
         
         init
       end
@@ -91,26 +123,27 @@ class << self
     end  
   end
 
-  def init
-    @base = 0.03
-    @amount = 60
+  def init  
+    @strategy = :reverse_ema
+    @base   = 0.03
+    @amount = 0.19
     
     @buys  = 0
     @sells = 0
     @usd   = []
     @lr=chart[0]
-    @sc,@sa,@su = [base, amount, (base*18500)+((amount*lr*0.9975)*18500)]
+    @sc,@sa,@su = [base, amount, (base*@btc_r)+((amount*lr*0.9975)*@btc_r)]
   
     @init = true
   
     if ARGV.index("-s")
+      @sr = chart[0]
+      
       chart.each_with_index do |r,i|
-        e = ema[i]
-        
         on_candle({
             'current' => {
               'close'  => r,
-              'ema'    => ema[i]=all[i..i+11].ema
+              'ema'    => ema[i]
             },
             
             'last' => {
@@ -128,20 +161,74 @@ class << self
     else
       c.updates do |tick|
         if !tick['err']
-          analyze tick['result'] if tick['result']['market'] == market
+          analyze tick['result']      if tick['result']['market'] == market
+          set_btc_rate tick['result'] if tick['result']['market'] == "USDT-BTC"
         end
       end
+      
+      listen_candle
     end
+  end
+  
+  def listen_candle
+    c.next_candle market do |candle|
+      if !candle['err']
+        on_candle({
+          'current' => {
+            'close' => @lr,
+            'ema'   => @e=all[-4..-1].ema
+          }
+        }, true)
+      end
+      
+      listen_candle
+    end  
+  end
+  
+  def set_btc_rate tick
+    @btc_r = tick['last']
+    report @lt if @lt
   end
 
   def report tick
+    @lt = tick
     print `clear`
-    puts JSON.pretty_generate(tick, allow_nan: true)
-    p [sc,sa,su]
-    p [@ec=base, @ea=amount, @eu=(base*18500)+((amount*lr*0.9975)*18500)]
-    p [ec/sc, ea/sa, eu/su]
-    p [lr, e]
-    p "Sells: #{@sells} Buys: #{@buys}"
+
+    puts JSON.pretty_generate({
+      tick: tick,
+      start: {
+        rate: @sr,
+        base: sc,
+        coin: sa,
+        usd:  su
+      },
+      current: {
+        base: {
+          amount:  @ec=base,
+          percent: (ec/sc),
+        },
+        coin: {
+          amount:  @ea=amount, 
+          percent: (ea/sa),
+        },
+        usd: {
+          amount:  @eu=(base*@btc_r)+((amount*lr*0.9975)*@btc_r),
+          percent: (eu/su)
+        },
+        ema: {
+          current: @e,
+          sell:    @e*1.005,
+          buy:     @e*0.995
+        }
+      },
+      buys:    @buys,
+      sells:   @sells,
+      periods: @period,
+      if_hodled: {
+        usd:     hu=(sc*@btc_r)+((sa*lr*0.9975)*@btc_r),
+        percent: (hu/su)
+      }
+    }, allow_nan: true)
   end
   
   def period_did_act?
@@ -156,7 +243,7 @@ class << self
     @e      = c['current']['ema']
     @candle = c
     
-    usd     << @eu=(base*18500)+((amount*lr*0.9975)*18500)
+    usd     << @eu=(base*@btc_r)+((amount*lr*0.9975)*@btc_r)
     
     if shift
       usd.shift
@@ -168,27 +255,50 @@ class << self
     c
   end
   
+  require 'gruff'
+  require 'base64'  
   def render
-require 'gruff'
-g = Gruff::Line.new
+    g = Gruff::Line.new('1000x800')
+    g.line_width = 1
+    g.dot_radius = 1
+    g.left_margin = 0
+    
+    g.theme = {
+      :colors => [
+        '#FFF804',  # yellow
+        '#336699',  # blue
+        'black',  # green
+        '#ff0000',  # red
+        '#cc99cc',  # purple
+        '#cf5910',  # orange
+        'black'
+      ],
+      :marker_color => 'black',
+      :font_color => 'black',
+      :background_colors => %w(white white)
+    }
+    
+    g.title = market
 
-g.title = 'Wow!  Look at this!'
+    g.data :ema, ema
+    g.data :sell, (ema.map do |q| q*1.005 end)
+    g.data :buy, (ema.map do |q| q*0.995 end)
+    g.data :price, chart
 
-g.data :ema12, ema.map do |q| q*1000 end
-g.data :price, chart.map do |q| q*1000 end
-
-g.write('exciting.png')
+    g.write("#{market}.png")
+    Base64.encode64(open("#{market}.png").read)
+    true
   end
   
   def analyze tick
-
-    if !period_did_act?
+    @sr ||= tick['last']
+    
+    if !(tick['last'] == @lr)#!period_did_act?
       if o = order?(@lr=tick['last'], e)
         bsh << o if o
       end
     end
     report tick
-  p [@last_period, @period, @period_did_act, e, @lr]
   end
 end
 
