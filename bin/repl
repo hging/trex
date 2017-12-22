@@ -2,7 +2,8 @@
 
 require 'socket'
 require 'json'
-Thread.abort_on_exception=true
+
+Thread.abort_on_exception = true
 
 class Queue
   def initialize
@@ -12,7 +13,7 @@ class Queue
   def shift type, obj
     if q=@h[type]
       if cb = q.shift
-        cb.call obj
+        cb.call obj['result'], obj['err']
       end
     end
   end
@@ -56,24 +57,60 @@ class Client < TCPSocket
     end
   end
   
-  def balance coin=nil, market: nil, &b
-    if !coin and market
+  def balances *coins, market: nil, &b
+    if market
       command({
-        type:   "balance",
+        type:   "pair_balances",
         params: {
-          market: market
+          market: market.upcase
         }
       })
-    elsif coin
+     
+      queue.push('pair_balances', &b)     
+    elsif !coins.empty?
       command({
-        type:   "balance",
+        type:   "balances",
         params: {
-          coin: coin.to_s.upcase
+          coins: coins.map do |c| c.to_s.upcase end
         }
       })
+      
+          
+      queue.push('balances', &b)
+    else
+      command({
+        type:   "balances",
+        params: {
+        }
+      })
+      
+          
+      queue.push('balances', &b)
     end
-    
+  end
+  
+  def balance coin, &b
+    command({
+      type:   "balance",
+      params: {
+        coins: coin.to_s.upcase
+      }
+    })
+      
     queue.push('balance', &b)
+  end
+  
+  def pair_balances market, &b
+    balance market: market, &b
+  end
+  
+  def update_balances &b
+    command({
+      type:   'update_balances',
+      params: {}
+    })
+    
+    queue.push('update_balances', &b)    
   end
   
   def tick market=nil, &b
@@ -98,15 +135,15 @@ class Client < TCPSocket
     queue.push "candle", &b
   end  
   
-  def status uuid, &b
+  def get_order uuid, &b
     command({
-      type: 'status',
+      type: 'get_order',
       params: {
         uuid: uuid
       }
     })
     
-    queue.push "status", &b
+    queue.push "get_order", &b
   end
   
   def order market: nil, type: nil, amount: nil, limit: nil
@@ -184,6 +221,23 @@ class Client < TCPSocket
       b.call *o if b
       updates &b
     end
+  end
+  
+  def get_ema market, periods, &b
+    command( {
+      type: 'get_ema',
+      params: {
+        market: market,
+        periods: 12
+      }
+    })
+    
+    queue.push 'get_ema', &b  
+  end
+  
+  def result obj
+    raise obj['err'] if obj['err']
+    obj['result']
   end
 end
 

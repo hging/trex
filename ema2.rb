@@ -1,15 +1,18 @@
 require 'moving_average'
 load "./bin/repl"
 require 'googlecharts'
+
 module Enumerable
   def every(n)
     (n - 1).step(self.size - 1, n).map { |i| self[i] }
   end
 end
+
 class << self
   attr_reader :ema, :chart, :sc,:sa,:su, :ea,:ec,:eu, :bsh, :all, :lr, :base, :amount, :e
 
   def reverse_ema r, e
+    return unless r and e
     if r < e*0.995
       send (ARGV.index("-r") ? :sell : :buy), r
     elsif r > e*1.005
@@ -92,9 +95,9 @@ class << self
     connect
   
     if !@btc_r
-      c.tick "USDT-BTC" do |tick|
-        if !tick['err']
-          @btc_r = tick['result']['last']
+      c.tick "USDT-BTC" do |tick, err|
+        if !err
+          @btc_r = tick['last']
         end
       end
     end
@@ -102,10 +105,10 @@ class << self
     until @btc_r; end
   
     c.subscribe market do
-      c.history market, ARGV[1].to_i do |h|
-   
-        @chart = h['result']['rates'].map do |c| c['close'] end
-        @ema   = h['result']['ema12']
+      c.history market, ARGV[1].to_i+(ep=ARGV[2].to_i) do |h|
+        @history = h['rates'][0..-1].map do |c| c['close'] end
+        @chart = h['rates'][ep-1..-1].map do |c| c['close'] end
+        @ema   = []
         @bsh   = []
         
         init
@@ -135,15 +138,20 @@ class << self
     @sc,@sa,@su = [base, amount, (base*@btc_r)+((amount*lr*0.9975)*@btc_r)]
   
     @init = true
-  
+       
+         
     if ARGV.index("-s")
-      @sr = chart[0]
+      @sr = chart[0]     
+    end
+        
+    chart.each_with_index do |r,i|
+      @ema << @e=@history[i..i+ARGV[2].to_i].ema
       
-      chart.each_with_index do |r,i|
+      if ARGV.index("-s") 
         on_candle({
             'current' => {
               'close'  => r,
-              'ema'    => ema[i]
+              'ema'    => e
             },
             
             'last' => {
@@ -157,28 +165,33 @@ class << self
         })
         #sleep 0.111
       end      
-      puts render
-    else
-      c.updates do |tick|
-        if !tick['err']
-          analyze tick['result']      if tick['result']['market'] == market
-          set_btc_rate tick['result'] if tick['result']['market'] == "USDT-BTC"
+    end
+    
+    if !ARGV.index("-s")
+      @lr = chart[-1]  
+      
+      c.updates do |tick, err|
+        if !err
+          analyze tick      if tick['market'] == market
+          set_btc_rate tick if tick['market'] == "USDT-BTC"
         end
       end
       
       listen_candle
+    else
+      puts render
     end
   end
   
   def listen_candle
-    c.next_candle market do |candle|
-      if !candle['err']
-        on_candle({
-          'current' => {
-            'close' => @lr,
-            'ema'   => @e=all[-4..-1].ema
-          }
-        }, true)
+    c.next_candle market do |candle, err|
+      if !err
+        c.get_ema market, ARGV[2].to_i do |ema, err| 
+          if !err
+            @e = ema
+            on_candle(candle, true)
+          end
+        end
       end
       
       listen_candle
@@ -191,6 +204,8 @@ class << self
   end
 
   def report tick
+    return unless @lr
+  
     @lt = tick
     print `clear`
 
@@ -240,8 +255,6 @@ class << self
     @period += 1
     @period_did_act = false
   
-    @e      = c['current']['ema']
-    @candle = c
     
     usd     << @eu=(base*@btc_r)+((amount*lr*0.9975)*@btc_r)
     

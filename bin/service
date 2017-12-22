@@ -44,14 +44,62 @@ class Commands
     end
   end
  
-  def balance ins,socket,req
-    m   = (ins.markets[req['params']['market']] || ins.markets[socket.active])
-
-    if m
+  def pair_balances ins,socket,req
+    if m = (ins.markets[n=req['params']['market']] || ins.markets[socket.active])
       obj = m.get_balances
     else
-      obj = {status: 'balance', err: "No active (valid) market."}
+      raise "Bad market: #{n}"
     end
+    
+  rescue => e
+    {
+      status: "pair_balances",
+      err: "#{e}"
+    }
+  end
+
+  def update_balances ins,socket,req
+    ins.update_balances
+    
+    {
+      status: "update_balances",
+      result: true
+    }
+  rescue => e
+    {
+      status: "update_balances",
+      err: "#{e}"
+    }
+  end
+  
+  def balances ins,socket,req
+    if coins=req['params']['coins']
+      h = {}
+      
+      coins.each do |c|
+        if bal=Trex.env[:balances].find do |b|
+          p [b.coin,c]
+          b.coin.to_s == c.upcase
+        end
+          h[c.upcase] = bal.to_h
+        end
+      end
+      
+      {
+        status: 'balances',
+        result: h
+      }
+    else
+      {
+        status: 'balances',
+        result: Trex.env[:balances].map do |b| b.to_h end
+      }
+    end
+  rescue => e
+    {
+      status: 'balances',
+      err:    "#{e}"
+    }
   end
 
   def active ins, socket, req
@@ -87,42 +135,11 @@ class Commands
       obj = ins.markets[m].order type, limit: rate, amount: amt
     end
   end
-    
-  def status ins, socket, req
-    obj = {
-      status: 'status',
-      result: o=Trex::Order.get(Trex.env[:account], uuid=req['params']['uuid']).to_h,
-      info: {
-        uuid: uuid
-      }
-    }
-  end
   
   def history ins, socket, req
     o = req['params']
     
     market   = o['market']
-    interval = (o['interval'] || :min).to_sym
-    
-    unless [:day, :min, :hour].index(interval)
-      return({
-        status: "history",
-        err: "bad value for interval",
-        info: {
-          market: market,
-          interval: interval
-        }
-      })
-    end    
-    
-    case interval
-    when :min
-      interval = 1
-    when :hour
-      interval = 60
-    when :day
-      interval = 60*24
-    end
     
     unless periods = o['periods']
       return({
@@ -136,30 +153,10 @@ class Commands
     end
     
     if m=ins.markets[market]
-      all    = m.chart.candle_data(0)[(-1*(periods+26))..-1]
-      pos    = 26
-  
-      ema4  = []
-      ema12 = []
-      ema26 = []
-  
-      rates = all[25..-1]
-      c = 0
-      
-      rates.each_with_index do |q, i|
-        ema12 << all[i..(i+11)].map do |t| t.close end.ema
-        ema26 << all[i..(i+25)].map do |t| t.close end.ema
-        ema4  << all[i..(i+3)].map do |t| t.close end.ema
-      end
-            
-      
       {
         status: 'history',
         result: {
-          rates: rates.map do |t| t.to_h end,
-          ema12: ema12,
-          ema26: ema26,
-          ema4:  ema4
+          rates: m.chart.candle_data(periods).map do |t| t.to_h end,
         }
       }
     else
@@ -171,6 +168,23 @@ class Commands
         }
       }
     end
+  end
+
+  def get_ema ins, socket, req
+    raise "must specifiy periods" unless periods = req['params']['periods']
+    raise "must specifiy market"  unless m       = req['params']['market']
+    
+    raise "No Market: #{m}" unless market = ins.markets[m]
+
+    {
+      status: 'get_ema',
+      result: market.chart.ema(periods)
+    }
+  rescue => e
+    {
+      status: 'get_ema',
+      err: "#{e}",
+    }
   end
   
   def subscribe ins, socket, req
@@ -214,6 +228,22 @@ class Commands
       }
     }
   end
+  
+  def get_order ins, socket, req
+    raise "No UUID" unless uuid=req['params']['uuid']
+    
+    if o=Trex.env[:account].get_order(uuid)
+      {
+        status: 'get_order',
+        result: o.to_h
+      }
+    else
+      {
+        status: 'get_order',
+        result: nil
+      }
+    end
+  end  
 end
 
 class ChartBuffer
@@ -242,7 +272,7 @@ class ChartBuffer
     
     if !@candle 
       @candle = Trex::Market::Tick.new
-      while socket = @on_candle.shift
+      while socket = @on_candle.shift        
         socket.put_result('next_candle', {
           current: candle.to_h,
           last:    last.to_h
@@ -266,10 +296,8 @@ class ChartBuffer
     @candle
   end
   
-  def ma periods, type
-    candle_data(periods).map do |c|
-      (c.open + c.close + c.high + c.low) / 4.0
-    end.send type
+  def ma periods, type, field: :close
+    candle_data(periods, field).send type
   end
 
   def ema periods
@@ -292,11 +320,11 @@ class ChartBuffer
     ema 26
   end
   
-  def candle_data periods, type=nil
+  def candle_data periods, field=nil
     a = @data.every(interval)[(-1*periods)..-1]
-    if type
+    if field
       a.map do |c|
-        c[type] 
+        c[field] 
       end
     else
       a
@@ -328,40 +356,28 @@ class Market
     @flash_level = 0
     
     @account = Trex.env[:account]
-    
-    update_balances
   end
   
-  def update_balances
-    @balances = {
-      base: account.balance(base),
-      coin: account.balance(coin)
-    }
-    
+  def balances
     {
-      status: 'update_balances',
-      result: @balances.to_h
-    }  
-  rescue => e
-    {
-      err: "#{e}",
-      status: 'update_balances'
+      base: Trex.env[:balances].find do |b| b.coin == base end,
+      coin: Trex.env[:balances].find do |b| b.coin == coin end
     }
   end
   
   def get_balances    
     {
-      status: 'balance',
+      status: 'pair_balances',
       result: {
         market: name,
-        base: @balances[:base].to_h,
-        coin: @balances[:coin].to_h
+        base: balances[:base].to_h,
+        coin: balances[:coin].to_h
       }
     }
   rescue => e
     {
       err: "#{e}",
-      status: "balance"
+      status: "pair_balances"
     }
   end
   
@@ -427,11 +443,17 @@ class Market
       r = limit || book.diff
     end
     
-    order = account.send(t, name, a, r)
+    uuid = account.send(t, name, a, r)
+    
+    if uuid
+      adj_balance t, a, r
+    end
     
     {
       status: 'order',
-      result: order.to_h
+      result: {
+        uuid: uuid
+      }
     }
   rescue => e
     {
@@ -443,6 +465,20 @@ class Market
         amount: amount
       }
     }
+  end
+  
+  def adj_balance t, a, r
+    if t == :buy
+      balances[:base].avail  -= a
+      balances[:base].amount -= a
+      balances[:coin].avail  += ((a*0.9975)/r)
+      balances[:coin].amount += ((a*0.9975)/r)
+    elsif t == :sell
+      balances[:coin].avail  -= a
+      balances[:coin].amount -= a
+      balances[:base].avail  += (a*r*0.9975)   
+      balances[:base].amount += (a*r*0.9975)      
+    end
   end
 end
 
@@ -459,6 +495,8 @@ module Client
       status: status,
       result: result
     })
+  rescue
+    close
   end
   
   def on_err e
@@ -487,18 +525,18 @@ class << self
       status: 'tick',
       result: {
         market:       market.name,
+    
         balances:     {
                         base: market.balances[:base].to_h,
                         coin: market.balances[:coin].to_h
                       },
+    
         bid:          b.high_bid,
         ask:          b.low_ask,
         last:         b.last,
         diff:         b.diff,
-        ema12:        market.chart.ema12,
-        ema26:        market.chart.ema26,
+    
         market_order: market.market_order_rates,
-        flash_level:  market.flash_level
       }
     }
   rescue => e
@@ -559,7 +597,7 @@ class << self
     end
     
     Trex.socket.order_books(name) do |book, name, state|
-      if !markets[name].book
+      if markets[name] and !markets[name].book
         markets[name].book = book
       
         book.bids.clear
@@ -581,47 +619,7 @@ class << self
         chart = markets[name].chart
         l     = book.last
         
-        if l
-          ema = chart.ema 3
-          # flash price drops
-          if l < ema*0.70
-            markets[name].flash_level = 30
-          elsif l < ema*0.85
-            markets[name].flash_level = 15
-          elsif l < ema*0.90
-            markets[name].flash_level = 10
-          elsif l < ema*0.95
-            markets[name].flash_level = 5
-          elsif l < ema*0.98
-            markets[name].flash_level = 2  
-          elsif l < ema*0.99
-            markets[name].flash_level = 1              
-          else
-            markets[name].flash_level = 0
-          end
-          
-          if (lvl=markets[name].flash_level) > 0
-            msg = {
-              status: 'flash',
-              result: {
-                market: name,
-                level:  lvl,
-                ema: ema,
-                tick: tick(name)['result'],
-                type:  'flash'
-              }
-            }.to_json(allow_nan: true)
-              
-            clients.each do |c|
-              begin
-                c.puts msg if c.subscribed_to?(name)
-              rescue
-                clients.delete c
-                c.close
-              end
-            end
-          end
-          
+        if l          
           chart.update l
         end
         
@@ -645,7 +643,7 @@ class << self
   def serve!
     grio.socket.serve "0.0.0.0", 2222 do |socket|
       socket.extend Client
-      socket.active  = @market.name
+      socket.active  = @market.name if @market
       socket.markets = []
       
       clients << socket
@@ -667,6 +665,8 @@ class << self
     
     serve!       
     
+    Trex.env[:balances] = Trex.env[:account].balances
+    
     ensure_market "USDT-BTC"
     
     @market = markets["USDT-BTC"]
@@ -679,11 +679,19 @@ class << self
   
       connect_ws
       
-      Trex.idle do
+      Trex.timeout 500 do
         if Trex.socket.singleton.closed?
           connect_ws
           sleep 1
         end
+        
+        true
+      end
+      
+      Trex.timeout 2000 do
+        update_balances
+        
+        true
       end
       
       Trex.timeout 60000 do
@@ -691,8 +699,14 @@ class << self
           next unless book = markets[k].book 
           v.chart.update book.last, true
         end
+        
+        true
       end
     end
+  end
+  
+  def update_balances
+    Trex.env[:balances] = Trex.env[:account].balances 
   end
   
   def connect_ws

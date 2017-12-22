@@ -69,14 +69,8 @@ module Trex
       end
       
       def last
-        l = nil
-        i = 0
-        (trades || []).map do |t|
-          l = 0 unless  l 
-          l += t.rate
-          i+=1
-        end
-        l ? (l / i.to_f) : nil
+        l = (trades || [])[0]
+        l ? l.rate : nil
       end
       
       def rate_at volume, type
