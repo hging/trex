@@ -35,7 +35,7 @@ module HashObject
   end
   
   def self.becomes o
-    o.extend self
+    o.extend self if o.is_a?(Hash)
     o
   end
 end
@@ -275,19 +275,20 @@ class Client < TCPSocket
     end
   end
   
-  def get_ema market, periods, &b
+  def get_ema market, periods, offset: 0, &b
     command( {
       type: 'get_ema',
       params: {
-        market: market,
-        periods: periods
+        market:  market,
+        periods: periods,
+        offset:  offset
       }
     })
     
     queue.push 'get_ema', &b  
   end
   
-  def sum market, periods, &b
+  def sum &b
     command( {
       type: 'sum',
       params: {
@@ -305,8 +306,8 @@ class Client < TCPSocket
   def pp command, *opts
     __send__ command, *opts do |o, e|
       set nil, o,e
-      s = JSON.pretty_generate o, allow_nan: true
-      out s
+      o = JSON.pretty_generate o, allow_nan: true if o.respond_to?(:"[]")
+      out o
     end
   end
   
@@ -324,8 +325,8 @@ class Client < TCPSocket
     __send__ command, *opts do |o,e|
       set var, o ,e
       STDOUT.print "\n=> "
-      s = JSON.pretty_generate o, allow_nan: true
-      out s
+      o = JSON.pretty_generate o, allow_nan: true if o.respond_to?(:"[]")
+      out o
     end
   end 
 end

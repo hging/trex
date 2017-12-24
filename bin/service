@@ -237,11 +237,13 @@ class Commands
     raise "must specifiy periods" unless periods = req['params']['periods']
     raise "must specifiy market"  unless m       = req['params']['market']
     
+    offset = req['params']['offset'] ||= 0
+    
     raise "No Market: #{m}" unless market = ins.markets[m]
 
     {
       status: 'get_ema',
-      result: market.chart.ema(periods)
+      result: market.chart.ema(periods, offset)
     }
   rescue => e
     {
@@ -359,12 +361,12 @@ class ChartBuffer
     @candle
   end
   
-  def ma periods, type, field: :close
-    candle_data(periods, field).send type
+  def ma periods, type, offset=0, field: :close
+    candle_data(periods, offset, field).send type
   end
 
-  def ema periods
-    ma periods, :ema  
+  def ema periods, offset=0
+    ma periods, :ema, offset  
   end
 
   def sma periods
@@ -383,8 +385,8 @@ class ChartBuffer
     ema 26
   end
   
-  def candle_data periods, field=nil
-    a = @data.every(interval)[(-1*periods)..-1]
+  def candle_data periods, offset=0, field=nil
+    a = @data.every(interval)[(-1*(periods+offset))..(-1-offset)]
     if field
       a.map do |c|
         c[field] 
