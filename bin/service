@@ -178,6 +178,8 @@ class Commands
     params = req['params']
     m      = params['market'] || socket.active
     type   = params['type']
+    
+    p [:order, m, type]
       
     if !ins.markets[m] or !type
       obj = {
@@ -501,8 +503,9 @@ class Market
     when :market_buy
       obj = market_order_rates[:bid]
       t = :buy
-      a = obj[:amount]
-      r = obj[:rate]    
+      a = balances[:base][:avail]
+      r = obj[:rate]
+      p [t,a,r]    
     when :sell
       a = (amount || balances[:coin].avail)
       r = limit || book.diff
@@ -784,6 +787,7 @@ class << self
   end
   
   def connect_ws
+    puts "WebSocket.connect"
     markets.each_pair do |k,v|
       v.book = nil
     end
