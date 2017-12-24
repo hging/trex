@@ -13,9 +13,9 @@ class << self
 
   def reverse_ema r, e
     return unless r and e
-    if r < e*0.995
+    if r < e*0.997
       send (ARGV.index("-r") ? :sell : :buy), r
-    elsif r > e*1.005
+    elsif r > e*1.003
       send (ARGV.index("-r") ? :buy : :sell), r
     else
     end  
@@ -43,6 +43,12 @@ class << self
           q
         end
       end
+    end
+  end
+
+  def swell r,e
+    if !@hold
+      if (r*amount*0.9975) >= @last_buy+5)
     end
   end
 

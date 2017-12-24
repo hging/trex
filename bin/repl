@@ -146,7 +146,7 @@ class Client < TCPSocket
     queue.push "get_order", &b
   end
   
-  def order market: nil, type: nil, amount: nil, limit: nil
+  def order market: nil, type: nil, amount: nil, limit: nil, &b
     command({
       type: 'order',
       params: {
@@ -228,16 +228,33 @@ class Client < TCPSocket
       type: 'get_ema',
       params: {
         market: market,
-        periods: 12
+        periods: periods
       }
     })
     
     queue.push 'get_ema', &b  
   end
   
+  def sum market, periods, &b
+    command( {
+      type: 'sum',
+      params: {
+      }
+    })
+    
+    queue.push 'sum', &b  
+  end  
+  
   def result obj
     raise obj['err'] if obj['err']
     obj['result']
+  end
+  
+  def pp command, *opts
+    __send__ command, *opts do |o|
+      s = JSON.pretty_generate o, allow_nan: true
+      out s
+    end
   end
 end
 

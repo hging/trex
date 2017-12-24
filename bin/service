@@ -31,6 +31,65 @@ class Commands
     obj
   end
 
+  def sum ins, socket, req
+    avail = []
+    total = []
+    
+    summaries = ins.summaries
+    
+    Trex.env[:balances].find_all do |b|
+      b.amount > 0
+    end.each do |b|
+      if b.coin == :USDT
+        avail << b.avail
+        total << b.amount
+        next
+      end
+      
+      markets = summaries.find_all do |s|
+        s["MarketName"].split("-")[1] == b.coin.to_s
+      end.sort do |x,y|
+        cr = 1
+        if (base=x['MarketName'].split("-")[0]) != "USDT"
+          cr = summaries.find do |s| s['MarketName'] == "USDT-#{base}" end['last']
+        end
+        
+        tx = x['Last'] * cr * b.amount
+
+        cr = 1
+        if (base=y['MarketName'].split("-")[0]) != "USDT"
+          cr = summaries.find do |s| s['MarketName'] == "USDT-#{base}" end['Last']
+        end
+        
+        ty = y['Last'] * cr * b.amount
+        
+        tx <=> ty
+      end
+      
+      cr = 1
+      if (base=markets[-1]['MarketName'].split("-")[0]) != "USDT"
+        cr = summaries.find do |s| s['MarketName'] == "USDT-#{base}" end['Last']
+      end
+              
+      total << markets[-1]['Last'] * cr * b.amount
+      avail << markets[-1]['Last'] * cr * b.avail
+    end
+    
+    t = 0
+    a = 0
+    
+    total.each do |v| t+=v end
+    avail.each do |v| a+=v end
+        
+    {
+      status: 'sum',
+      result: {
+        total: t,
+        avail: a
+      }
+    }
+  end
+
   def candle ins, socket, req
     m   = (ins.markets[req['params']['market']] || ins.markets[socket.active])
     
@@ -134,6 +193,11 @@ class Commands
       rate, amt = params['limit'], params['amount']
       obj = ins.markets[m].order type, limit: rate, amount: amt
     end
+  rescue => e
+    {
+      status: 'order',
+      err: "#{e}"
+    }
   end
   
   def history ins, socket, req
@@ -422,6 +486,9 @@ class Market
   
   def order type, limit: nil, amount: nil
     uuid = nil
+    
+    type=type.to_sym
+    
     t,a,r = type, nil, nil
     
     case type
@@ -442,6 +509,8 @@ class Market
       a = (amount || balances[:coin].avail)
       r = limit || book.diff
     end
+    
+    [t, name, a, r]
     
     uuid = account.send(t, name, a, r)
     
@@ -703,6 +772,10 @@ class << self
         true
       end
     end
+  end
+  
+  def summaries
+    Trex.summaries struct: false
   end
   
   def update_balances
