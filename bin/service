@@ -51,7 +51,7 @@ class Commands
       end.sort do |x,y|
         cr = 1
         if (base=x['MarketName'].split("-")[0]) != "USDT"
-          cr = summaries.find do |s| s['MarketName'] == "USDT-#{base}" end['last']
+          cr = summaries.find do |s| s['MarketName'] == "USDT-#{base}" end['Last']
         end
         
         tx = x['Last'] * cr * b.amount
@@ -137,7 +137,6 @@ class Commands
       
       coins.each do |c|
         if bal=Trex.env[:balances].find do |b|
-          p [b.coin,c]
           b.coin.to_s == c.upcase
         end
           h[c.upcase] = bal.to_h
@@ -186,7 +185,7 @@ class Commands
         err:    "bad values for order.",
         info:   {
           market: m,
-          type:   t,
+          type:   type,
         }
       }
     else

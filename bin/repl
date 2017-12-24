@@ -5,6 +5,41 @@ require 'json'
 
 Thread.abort_on_exception = true
 
+class CPP
+  def initialize ins
+    @ins = ins
+  end
+  
+  def method_missing m, *o
+    @ins.c.pp m, *o
+  end
+end
+
+class Store
+  def initialize ins
+    @ins = ins
+  end
+  
+  def method_missing m, *o
+    @ins.c.store m, *o
+  end
+end
+
+module HashObject
+  def [] k
+    super(k) or super(k.to_s) or super(k.to_s.upcase)
+  end
+  
+  def method_missing m
+    self[m]
+  end
+  
+  def self.becomes o
+    o.extend self
+    o
+  end
+end
+
 class Queue
   def initialize
     @h = {}
@@ -13,7 +48,7 @@ class Queue
   def shift type, obj
     if q=@h[type]
       if cb = q.shift
-        cb.call obj['result'], obj['err']
+        cb.call HashObject.becomes(obj['result']), HashObject.becomes(obj['err'])
       end
     end
   end
@@ -91,13 +126,16 @@ class Client < TCPSocket
   
   def balance coin, &b
     command({
-      type:   "balance",
+      type:   "balances",
       params: {
-        coins: coin.to_s.upcase
+        coins: [c=coin.to_s.upcase]
       }
     })
       
-    queue.push('balance', &b)
+    queue.push('balances') do |o,e|
+      o = HashObject.becomes o[c]
+      b.call o, e
+    end
   end
   
   def pair_balances market, &b
@@ -206,12 +244,26 @@ class Client < TCPSocket
     puts obj.to_json
   end
   
+  def self.ins
+    @ins
+  end
+  
   def self.repl ins
+    @ins = ins
+    
     class << ins
       attr_reader :c
       def connect h=nil,p=nil
         @c = Client.new((h || '0.0.0.0'), (p || 2222))
         @c.run
+      end
+      
+      def cpp
+        @_cpp_ ||= CPP.new(self)
+      end
+      
+      def store
+        @_store_ ||= Store.new self
       end
     end  
   end
@@ -251,11 +303,31 @@ class Client < TCPSocket
   end
   
   def pp command, *opts
-    __send__ command, *opts do |o|
+    __send__ command, *opts do |o, e|
+      set nil, o,e
       s = JSON.pretty_generate o, allow_nan: true
       out s
     end
   end
+  
+  def set var, o, e
+    self.class.ins.instance_variable_set("@error", e)
+    
+    if var
+      self.class.ins.instance_variable_set("@#{var}", o)
+    end
+    
+    [o,e]  
+  end
+  
+  def store command, var, *opts
+    __send__ command, *opts do |o,e|
+      set var, o ,e
+      STDOUT.print "\n=> "
+      s = JSON.pretty_generate o, allow_nan: true
+      out s
+    end
+  end 
 end
 
 if __FILE__ == $0
