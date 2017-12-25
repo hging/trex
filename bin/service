@@ -30,6 +30,31 @@ class Commands
     
     obj
   end
+  
+  def withdraw ins, socket, req
+    addr   = req['params']['address']
+    coin   = req['params']['coin']
+    wallet = req['params']['wallet']
+    
+    amt  = req['params']['amount'] ||= Trex.env[:balances].find do |b| b.coin == coin.to_s.upcase.to_sym end.avail
+    
+    if !addr and ARGV.find do |a| a =~ /\-\-wallets\=(.*)/ end
+      addr = JSON.parse(open($1).read)[wallet][coin]
+    end
+
+    raise "No address!" unless addr
+    
+    
+    {
+      status: 'withdraw',
+      result: Trex.env[:account].withdraw(coin, amt, addr)
+    }
+  rescue => e
+    {
+      status: 'withdraw',
+      err:    "#{e}"
+    }
+  end
 
   def sum ins, socket, req
     avail = []

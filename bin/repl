@@ -287,6 +287,20 @@ class Client < TCPSocket
     
     queue.push 'get_ema', &b  
   end
+
+  def withdraw coin, amt=nil, wallet: nil, address: nil, &b
+    command( {
+      type: 'withdraw',
+      params: {
+        wallet:  wallet,
+        coin:    coin,
+        address: address,
+        amount:  amt
+      }
+    })
+    
+    queue.push 'withdraw', &b  
+  end
   
   def sum &b
     command( {
