@@ -786,7 +786,7 @@ class << self
         true
       end
       
-      Trex.timeout 2000 do
+      Trex.timeout 3500 do
         update_balances
         
         true

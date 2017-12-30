@@ -3,19 +3,26 @@ load "./bin/repl"
 
 Client.repl self
 
+def stash
+  @stash += @base - start
+  @base = @start
+end
+
+def tap
+  @base += @stash
+  @stash = 0
+end
+
 def rapid
   if !@hold
-    if last < ema
+    if last < ema*0.995
       return :buy
     end   
     
   elsif @hold
-    if (profit / @last_buy) > 1.01#+@loss
+    if (last > ema*1.005)#+@loss
       @loss = 0
-      return :sell
-    
-    elsif (l=(@last_buy - profit)) > 100
-      @loss+=l
+      
       return :sell
     end
   end
@@ -59,6 +66,10 @@ def sell
     order :sell
   end
   
+  if base > (start * 1.1)
+    stash    
+  end   
+  
   @sells+=1
   puts
   p [:sell, last]
@@ -69,7 +80,9 @@ def usd
 end
 
 def hold
-
+  if usd < (start*0.95)
+    tap if (@stash||=0) > 0
+  end
 end
 
 class << self
@@ -112,6 +125,10 @@ class << self
       
       @last = r
       
+      @hodl ||= (base*0.9975)/r
+      
+      @start ||= @base+(@amount*r*0.9975)
+      
       analyze
     end
   end
@@ -141,32 +158,30 @@ class << self
     puts JSON.pretty_generate(o, allow_nan: true)
   end
   
-  attr_reader :last_tick
+  attr_reader :last_tick, :start, :hodl
   def report
     return unless last_tick
     print `clear`
-    puts "["
-    pp last_tick
-    puts ","
+
     return unless last and ema
-    
-    @sb ||= base/last
     
     puts JSON.pretty_generate({
       buys:       @buys,
       sells:      @sells,
-      hodl:       s=(@sb)*last, 
-      base_value: e=(amount*last)+base,
+      start:      @start,
+      hodl:       h=(@hodl)*last, 
+      total:      e=(amount*last)+base+(@stash||=0),
       coin:       "%.8f" % amount, 
       base:       "%.8f" % base,
-      pct:        e / s,
+      stash:      @stash,
+      pct:        e / start,
+      vs_hodl:    e / h,
       periods:    @np,
       bid:        last_tick.bid,
       ask:        last_tick.last,
       last:       last,
       ema:        ema
     }, allow_nan: true)
-    puts "]"
   end
   
   def run
