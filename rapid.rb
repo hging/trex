@@ -15,22 +15,12 @@ end
 
 def rapid
   if !@hold
-<<<<<<< HEAD
     if last < ema*(1.0-@deviation)
-=======
-    if last < ema*0.995
->>>>>>> 1f95af6c78766b7bdf1d4e024e121f8921eeb915
       return :buy
     end   
     
   elsif @hold
-<<<<<<< HEAD
     if (last >= ema*(1.0+@deviation))
-=======
-    if (last > ema*1.005)#+@loss
-      @loss = 0
-      
->>>>>>> 1f95af6c78766b7bdf1d4e024e121f8921eeb915
       return :sell
     end
   end
@@ -110,7 +100,6 @@ def sell
     order :sell
   end
   
-<<<<<<< HEAD
   if base >= (1.2*start)
     stash
   end
@@ -118,11 +107,6 @@ def sell
   if @stash >= start*0.2*base_rate['Last']
     bury
   end     
-=======
-  if base > (start * 1.1)
-    stash    
-  end   
->>>>>>> 1f95af6c78766b7bdf1d4e024e121f8921eeb915
   
   @sells+=1
   puts
@@ -244,8 +228,7 @@ class << self
     return unless last_tick and last and ema
     
     print `clear`
-<<<<<<< HEAD
-    
+
     @sb  ||= (base/last)*0.9975
     @sbr ||= base_rate['Last']
     
@@ -260,22 +243,6 @@ class << self
       coin:       "%.8f" % amount, 
       base:       "%.8f" % base,
       pct:        pct= e/start,
-=======
-
-    return unless last and ema
-    
-    puts JSON.pretty_generate({
-      buys:       @buys,
-      sells:      @sells,
-      start:      @start,
-      hodl:       h=(@hodl)*last, 
-      total:      e=(amount*last)+base+(@stash||=0),
-      coin:       "%.8f" % amount, 
-      base:       "%.8f" % base,
-      stash:      @stash,
-      pct:        e / start,
-      vs_hodl:    e / h,
->>>>>>> 1f95af6c78766b7bdf1d4e024e121f8921eeb915
       periods:    @np,
       bid:        last_tick.bid,
       ask:        last_tick.last,
