@@ -1,0 +1,8 @@
+#!/usr/bin/env ruby
+require 'json'
+
+File.open("orders.log", "r").each_line("\n") do |l|
+  obj = JSON.parse(l)
+  puts "###### #{obj['time']} ######"
+  puts JSON.pretty_generate(obj)
+end

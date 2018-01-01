@@ -21,7 +21,14 @@ class Store
   end
   
   def method_missing m, *o
-    @ins.c.store m, *o
+    t = :store
+    
+    if m.to_s =~ /\!$/
+      t = :"store!"
+      m = m.to_s.gsub(/\!$/, '')
+    end
+  
+    @ins.c.__send__ t, m, *o
   end
 end
 
@@ -73,10 +80,14 @@ class Client < TCPSocket
     if obj['status']
       queue.shift obj['status'], obj
     elsif obj['err']
+      out "NO STATUS!"
       out obj['backtrace']
       out obj['info']
+      
       raise obj['err']
     end
+  rescue => e
+    p e
   end
   
   attr_reader :queue
@@ -85,9 +96,8 @@ class Client < TCPSocket
   
     Thread.new do
       loop do
-        s = gets("\n")
+        s = gets
         process s.strip if s
-        flush if s
       end
     end
   end
@@ -311,6 +321,17 @@ class Client < TCPSocket
     
     queue.push 'sum', &b  
   end  
+
+  def summary market, &b
+    command( {
+      type: 'summary',
+      params: {
+        market: market
+      }
+    })
+    
+    queue.push 'summary', &b  
+  end 
   
   def result obj
     raise obj['err'] if obj['err']
@@ -343,6 +364,12 @@ class Client < TCPSocket
       out o
     end
   end 
+  
+  def store! command, var, *opts
+    __send__ command, *opts do |o,e|
+      set var, o ,e
+    end
+  end  
 end
 
 if __FILE__ == $0

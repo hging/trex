@@ -72,6 +72,17 @@ module Trex
   end
     
   module Market
+    def self.trades market
+      obj = Trex.get({
+        api:    :public,
+        method: 'getmarkethistory',
+        version: 1.1,
+        query: {
+          market:     market
+        }
+      })    
+    end
+    
     Tick = Struct.new(:high,:low,:open,:close, :btc_volume, :volume) do
       def self.from_obj obj
         ins = new
@@ -158,7 +169,7 @@ module Trex
       })
       
       obj.each do |o|
-        (Trex.env[:rates] ||= {})[market] = o["Last"] unless Trex.env[:streaming_rates]
+        (Trex.env[:rates] ||= {})[o['MarketName']] = o["Last"] unless Trex.env[:streaming_rates]
       end
       
       return obj unless struct
@@ -184,6 +195,149 @@ module Trex
       
       Summary.from_obj obj
     end 
+    
+    OrderBook = Struct.new(:bids, :asks, :trades) do
+      Entry = Struct.new(:type, :amount, :rate, :data) do
+        def self.from_obj type, obj, data: nil
+          new type, obj[:Quantity], obj[:Rate], data
+        end
+        
+        def match? amt, rate
+          case type
+          when :ask
+            self.rate <= rate
+          when :sell
+            self.rate <= rate
+          else 
+            self.rate >= rate
+          end and amt >= amt
+        end
+      end
+      
+      def update delta
+        delta[:Buys].each do |e|
+          e = Entry.from_obj :bid, e, data: e[:Type] == 1 
+          next(self.bids[e.rate] = e) unless e.data
+          self.bids.delete e.rate
+        end
+        
+        delta[:Sells].each do |e|
+          e = Entry.from_obj :ask, e, data: e[:Type] == 1
+          next(self.asks[e.rate] = e) unless e.data
+          self.asks.delete e.rate
+        end  
+        
+        self.trades = delta[:Fills].map do |e|
+          e = Entry.from_obj e[:OrderType].downcase.to_sym, e
+        end unless delta[:Fills].empty?              
+      end
+      
+      def self.init *o, name: nil
+        ins = self.new(*o)
+        ins.bids ||= {}; ins.asks ||= {}; ins.trades ||= {}
+        
+        ins.init name if name
+        
+        ins
+      end
+      
+      def init name
+        p :SYNC_BOOK
+      
+        bk        = Trex.book name, "both" 
+        self.last = Trex.trades(name)[0]["Price"]
+          
+        bk["buy"].each do |b|
+          b.keys.each do |k| b[:"#{k}"]= b[k] end
+          bids[b[:Rate]] = Trex::Market::Entry.from_obj(:bid, b)
+        end
+          
+        bk["sell"].each do |b|
+          b.keys.each do |k| b[:"#{k}"]= b[k] end
+          asks[b[:Rate]] = Trex::Market::Entry.from_obj(:ask, b)
+        end      
+      end
+      
+      def low_ask
+        asks.keys.sort[0]
+      end
+      
+      def high_bid
+        bids.keys.sort[-1]
+      end
+      
+      def bid
+        high_bid
+      end
+      
+      def ask
+        low_ask
+      end
+      
+      def diff
+        if ask and bid
+          return (ask + bid) / 2.0
+        end
+        
+        return ask if ask
+        return bid if bid
+      end
+      
+      def last        
+        l = (trades || [])[0]
+        l ? l.rate : @last
+      end
+      
+      def last= l
+        @last = l
+      end 
+      
+      def rate_at volume, type
+        v = 0
+        partials=[]
+        
+        (type == :ask ? (t=asks).keys.sort : (t=bids).keys.sort.reverse).each do |rate|
+          ov=v
+          v += tv=t[rate].amount
+          if v >= volume 
+            partials << [volume-ov,rate]
+            break
+          else
+            partials << [tv, rate]
+          end
+        end
+          
+        cost=0
+        partials.each do |a|
+          cost += a[0]*a[1]
+        end
+          
+        cost / volume
+      end
+      
+      def amt_for base, type
+        b = 0
+        partials=[]
+        
+        (type == :ask ? (t=asks).keys.sort : (t=bids).keys.sort.reverse).each do |rate|
+          ob=b
+          b += tb=t[rate].amount*base
+          if b >= base 
+            partials << [base-ob, rate]
+            break
+          else
+            partials << [tb, rate]
+          end
+        end
+          
+        amt=0
+        partials.each do |a|
+          amt += a[0]/a[1]
+        end
+          
+        amt
+      end      
+    end    
     
     def self.book market, type
       obj = Trex.get({
@@ -404,6 +558,10 @@ module Trex
   
   def self.book market, type
     Market.book market, type
+  end
+  
+  def self.trades market
+    Market.trades market
   end
 end
 

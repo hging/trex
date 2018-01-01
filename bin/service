@@ -1,5 +1,9 @@
 #!/usr/bin/env ruby
+$: << File.expand_path(File.join(File.dirname(__FILE__),"..", "lib", "service"))
 
+<<<<<<< HEAD
+require 'service'
+=======
 require 'trex'
 require 'trex/socket_api'
 require 'grio/dsl'
@@ -828,5 +832,7 @@ rescue => IOError
   clients.find_all do |c| c.closed? end.each do |c| clients.delete c end
 end
 
+>>>>>>> 1f95af6c78766b7bdf1d4e024e121f8921eeb915
 
 run
+
