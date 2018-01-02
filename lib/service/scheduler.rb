@@ -27,7 +27,7 @@ class Scheduler
   def initialize ins, opts
     @tasks = []
     
-    opts.each_pair do |a,r|
+    opts.sort do |a,b| a[1] <=> b[1] end.each do |a,r|
       tasks << Task.new(ins, a, r)
     end
     

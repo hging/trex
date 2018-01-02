@@ -245,7 +245,7 @@ class << self
       pct:        pct= e/start,
       periods:    @np,
       bid:        last_tick.bid,
-      ask:        last_tick.last,
+      ask:        last_tick.ask,
       last:       last,
       ema:        ema,
       target:     {

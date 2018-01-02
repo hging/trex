@@ -17,6 +17,24 @@ class Commands
     obj
   end
   
+  def last_tick ins, socket, req
+    m = (req['params']['market'] || socket.active)    
+    i = req['params']['interval'] || :oneMin
+    
+    obj = {
+      status: 'last_tick',
+      result: Trex.last_tick(m, interval: i).to_h
+    }
+  rescue => e
+    {
+      status: 'last_tick',
+      err: {
+        msg:       "#{e}",
+        backtrace: e.backtrace
+      }
+    }
+  end  
+  
   def withdraw ins, socket, req
     addr   = req['params']['address']
     coin   = req['params']['coin']

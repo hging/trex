@@ -83,11 +83,11 @@ module Trex
       })    
     end
     
-    Tick = Struct.new(:high,:low,:open,:close, :btc_volume, :volume) do
+    Tick = Struct.new(:high,:low,:open,:close, :btc_volume, :volume, :time) do
       def self.from_obj obj
         ins = new
         
-        {"H" => :high, "L"=>:low, "O"=>:open, "C"=>:close, "BV"=>:btc_volume, "V"=>:volume}.map do |h,s|
+        {"H" => :high, "L"=>:low, "O"=>:open, "C"=>:close, "BV"=>:btc_volume, "V"=>:volume, "T"=>:time}.map do |h,s|
           ins[s] = obj[h]
         end
         
@@ -112,6 +112,22 @@ module Trex
         Tick.from_obj t
       end
     end
+    
+    def self.last_tick market, interval=:oneMin, struct: true
+      obj = Trex.get({
+        api:    :pub,
+        method: 'market/GetLatestTick',
+        version: 2.0,
+        query: {
+          marketName:     market,
+          tickInterval:   interval
+        }
+      })
+      
+      return obj unless struct
+      
+      Tick.from_obj obj[0]
+    end    
     
     Ticker = Struct.new(:bid, :ask, :last) do
       def self.from_obj o
@@ -313,6 +329,8 @@ module Trex
         end
           
         cost / volume
+      rescue
+        Float::NAN
       end
       
       def amt_for base, type
@@ -552,6 +570,10 @@ module Trex
     Market.ticks market, interval, struct: struct
   end
   
+  def self.last_tick market, interval: :oneMin, struct: true
+    Market.last_tick market, struct: struct
+  end  
+
   def self.ticker market, struct: true
     Market.ticker market, struct: struct
   end  

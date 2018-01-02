@@ -46,10 +46,10 @@ class Market
   def init_book book=nil
     @book = book
     
-    if book
-      book.bids.clear
-      book.asks.clear
-      book.trades.clear
+    if @book
+      @book.bids.clear
+      @book.asks.clear
+      @book.trades.clear
     else
       @book = Trex::Market::OrderBook.init
     end

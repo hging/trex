@@ -172,6 +172,17 @@ class Client < TCPSocket
     queue.push "tick", &b
   end
   
+  def last_tick market=nil, &b
+    command({
+      type: 'last_tick',
+      params: {
+        market: market
+      }
+    })
+    
+    queue.push "last_tick", &b
+  end  
+  
   def candle market=nil, &b
     command({
       type: 'candle',

@@ -10,7 +10,7 @@ class ChartBuffer
       @interval = 1*60*24
     end
     
-    @data      = Trex.get_ticks(market)
+    @data      = Trex.get_ticks(@market=market)
     @on_candle = []
   end
   
@@ -32,16 +32,15 @@ class ChartBuffer
       end
     end
     
-    return @candle if !r    
+    if r    
+      @candle.close = r
+      @candle.open  = r if !@candle.open     
+      @candle.high  = r if !@candle.high or (r > @candle.high)
+      @candle.low   = r if !@candle.low  or (r < @candle.low)
+    end
     
-    @candle.close = r
-    @candle.open  = r if !@candle.open     
-    @candle.high  = r if !@candle.high or (r > @candle.high)
-    @candle.low   = r if !@candle.low  or (r < @candle.low)
-    
-    if close
-      @data.shift
-      @data << @candle
+    if close and Trex.last_tick(market).time != @data[-1].time 
+      @data = Trex.get_ticks(market)
       @last = @candle
       @candle = nil
       update last.close

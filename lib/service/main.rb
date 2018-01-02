@@ -194,13 +194,15 @@ class << self
             next unless book = markets[k].book 
         
             if !ARGV.index('--stream')
-              book.init k
+              markets[k].init_book 
               sleep 1 if markets.keys.length > 1
             end
             
+            next unless book = markets[k].book 
+            
             v.chart.update book.last(), true 
           end
-        end) => 60
+        end) => 10
       }
       
       if !ARGV.index('--stream')
@@ -208,7 +210,7 @@ class << self
           markets.keys.each do |name|
             broadcast_tick name if clients.find do |c| c.subscribed_to?(name) end
           end
-        end)] = 5
+        end)] = 2
       end
       
       Scheduler.new self, hash
