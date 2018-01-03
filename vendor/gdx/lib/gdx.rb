@@ -111,7 +111,11 @@ module GDX
       ins = new
        
       o.each_pair do |k,v|
-        ins[k.to_sym] = v
+        begin
+          ins[k.to_sym] = o.send(k)
+        rescue
+          ins[k.to_sym] = o[k]
+        end
       end
       
       ins
@@ -127,6 +131,10 @@ module GDX
     
     def amount
       size
+    end
+    
+    def total
+      size*rate
     end
   end 
   
