@@ -191,7 +191,12 @@ Trex.env[:simulate]      = ARGV.index("--trex-simulate")
 ARGV.find do |a| break if a=~/\-\-account\-file\=(.*)/ end
 if account_file = $1
   Trex.env[:account_file] = account_file
-  Trex.env[:account]       = Trex::Account.new(*JSON.parse(open(account_file).read))
+  
+  obj    = JSON.parse(open(account_file).read)
+  key    = obj['trex']['key']
+  secret = obj['trex']['secret']
+
+  Trex.env[:account]       = Trex::Account.new(key,secret)
 end
 
 ARGV.find do |a| break if a=~/\-\-account\-key\=(.*)/ end

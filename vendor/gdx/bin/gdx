@@ -1,0 +1,8 @@
+#!/usr/bin/env ruby
+require File.expand_path(File.join(File.dirname(__FILE__),'..','lib/gdx'))
+
+act = GDX.env[:account]
+p oa=act.open_orders
+p o = act.order(oa[0].id)
+p o.rate
+p GDX.env[:account].balance :LTC
