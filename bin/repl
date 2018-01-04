@@ -102,6 +102,17 @@ class Client < TCPSocket
     end
   end
   
+  def addr coin, &b
+    command({
+      type:   "address",
+      params: {
+        coin: c=coin.to_s.upcase
+      }
+    })
+      
+    queue.push('address', &b)
+  end
+  
   def balances *coins, market: nil, &b
     if market
       command({

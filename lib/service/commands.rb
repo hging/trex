@@ -5,6 +5,23 @@ class Commands
     {err: {msg: "#{e}", backtrace: e.backtrace}}
   end
   
+  def address ins, socket, req
+    c = req['params']['coin']
+  
+    {
+      status: 'address',
+      result: Trex.env[:account].address(c.upcase.to_sym)
+    }
+    
+  rescue => e
+    {
+      status: 'address',
+      err:    {
+        msg: "#{e}"
+      }
+    }
+  end
+  
   def tick ins, socket, req
     m = (req['params']['market'] || socket.active)    
     if m and ins.markets[m]        

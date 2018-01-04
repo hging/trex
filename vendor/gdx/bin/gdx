@@ -2,11 +2,18 @@
 require File.expand_path(File.join(File.dirname(__FILE__),'..','lib/gdx'))
 
 act = GDX.env[:account]
+
+class << act.api
+
+end
+
 p oa=act.open_orders
-p o = act.order(oa[0].id)
-p o.total.to_f
+#p o = act.order(oa[0].id)
+
+#p o.total.to_f
 p GDX.env[:account].balance :LTC
 
 act.api.last_trade do |resp|
   p "The spot rate is $ %.2f" %  resp.price
 end
+p act.coinbase_accounts.response

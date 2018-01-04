@@ -22,7 +22,6 @@ module GDX
     end  
   end
   
-  
   class Account
     attr_accessor :key, :secret, :pass, :api
     def initialize key, secret, pass
@@ -59,9 +58,39 @@ module GDX
       end
     end
     
-    def withdraw amount, dest, type: :coinbase
-    
+    def withdraw dest, amount, type: :coinbase, currency: nil
+      if type == :coinbase
+        api.withdraw dest, amount
+      elsif type == :crypto
+        params = {}
+        
+        params[:currency]       = currency
+        params[:amount]         = amount
+        params[:crypto_address] = dest
+
+        out = nil
+        
+        api.send(:post, "/withdrawals/crypto", params) do |resp|
+          out = api.send(:response_object, resp)
+          yield(out, resp) if block_given?
+        end
+        
+        out
+      end
     end
+    
+    def withdraw2addr coin, addr, amount
+      withdraw addr, amount, type: crypto, currency: coin
+    end
+    
+    def coinbase_accounts
+      out = nil
+      api.send(:get, "/coinbase-accounts") do |resp|
+        out = api.send(:response_object, resp)
+        yield(out, resp) if block_given?
+      end
+      out    
+    end   
     
     def deposit amount, source, type: :coinbase
     
