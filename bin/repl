@@ -113,7 +113,7 @@ class Client < TCPSocket
     queue.push('address', &b)
   end
   
-  def balances *coins, market: nil, &b
+  def balances *coins, market: nil, nonzero: false, &b
     if market
       command({
         type:   "pair_balances",
@@ -137,6 +137,7 @@ class Client < TCPSocket
       command({
         type:   "balances",
         params: {
+          nonzero: nonzero
         }
       })
       

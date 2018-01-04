@@ -190,8 +190,10 @@ class Commands
       coins.each do |c|
         if bal=Trex.env[:balances].find do |b|
           b.coin.to_s == c.upcase
-        end
-          h[c.upcase] = bal.to_h
+        end      
+          b = get_balance_rates ins, bal
+         
+          h[c.upcase] = b
         end
       end
       
@@ -202,7 +204,12 @@ class Commands
     else
       {
         status: 'balances',
-        result: Trex.env[:balances].map do |b| b.to_h end
+        result: Trex.env[:balances].find_all do |b| 
+          req['params']['nonzero'] ? b.amount > 0 : true
+        end.map do |b| 
+          b = get_balance_rates ins,b
+          b
+        end
       }
     end
   rescue => e
@@ -210,6 +217,46 @@ class Commands
       status: 'balances',
       err:    "#{e}"
     }
+  end
+
+  def get_balance_rates ins, bal
+    markets = ins.summaries.find_all do |s|
+      s['MarketName'].split("-")[1] == bal.coin.to_s
+    end
+    
+    b = bal.to_h      
+          
+    b['markets'] = {}
+          
+    high = nil
+    low  = markets[0]['MarketName']
+    l    = markets[0]['Last']
+    h    = 0
+          
+    markets.each do |s|
+      base = s['MarketName'].split("-")[0]
+            
+      usd = 1
+            
+      if base != "USDT"
+        usd = ins.summary("USDT-#{base}")['Last']
+      end
+            
+      b['markets'][m=s['MarketName']] = {
+        rate:       r=s['Last'],
+        'rate-usd': ur=usd*r,
+        usd:        a=ur*bal['amount'],
+      }
+      
+      (low = m) and (l=a) if a <= l      
+      (high = m) and (h=a) if a > h
+    end
+          
+    b['usd']         = b['markets'][high]
+    b['high-market'] = high  
+    b['low-market']  = low
+    
+    b
   end
 
   def active ins, socket, req

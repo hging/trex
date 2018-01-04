@@ -20,6 +20,8 @@ class << self
     
     b      = market.book
     
+    summaries.find do |s| s['MarketName'] == market.name end['Last'] = book.last
+    
     {
       status: 'tick',
       result: {
