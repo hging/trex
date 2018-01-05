@@ -124,7 +124,7 @@ class Market
       a = (amount || balances[:coin].avail)
       r = limit || book.diff
     when :buy
-      a = (amount || balances[:coin].avail)
+      a = (amount || balances[:base].avail)
       r = limit || book.diff
     end
     

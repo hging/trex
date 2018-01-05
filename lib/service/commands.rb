@@ -184,6 +184,8 @@ class Commands
   end
   
   def balances ins,socket,req
+    update = req['params']['update']
+  
     if coins=req['params']['coins']
       h = {}
       
@@ -191,7 +193,7 @@ class Commands
         if bal=Trex.env[:balances].find do |b|
           b.coin.to_s == c.upcase
         end      
-          b = get_balance_rates ins, bal
+          b = get_balance_rates ins, bal, update
          
           h[c.upcase] = b
         end
@@ -207,7 +209,7 @@ class Commands
         result: Trex.env[:balances].find_all do |b| 
           req['params']['nonzero'] ? b.amount > 0 : true
         end.map do |b| 
-          b = get_balance_rates ins,b
+          b = get_balance_rates ins,b, update
           b
         end
       }
@@ -219,7 +221,20 @@ class Commands
     }
   end
 
-  def get_balance_rates ins, bal
+  def trades ins, socket, req
+    m = req['params']['markets']
+    
+    a = m.map do |market|
+      Trex.trades(market)
+    end
+    
+    {
+      status: 'trades',
+      result: a
+    }
+  end
+
+  def get_balance_rates ins, bal, update=false
     markets = ins.summaries.find_all do |s|
       s['MarketName'].split("-")[1] == bal.coin.to_s
     end
@@ -243,7 +258,7 @@ class Commands
       end
             
       b['markets'][m=s['MarketName']] = {
-        rate:       r=s['Last'],
+        rate:       r=(update ? ins.tick(m)[:result][:last] : s['Last']),
         'rate-usd': ur=usd*r,
         usd:        a=ur*bal['amount'],
       }
@@ -271,6 +286,19 @@ class Commands
     else
       obj = {status: "active?", result: socket.active}
     end
+  end
+
+  def cancel ins, socket, req
+    uuid = req['params']['uuid']
+  
+    Trex.env[:account].cancel uuid
+  
+    {
+      status: 'cancel',
+      result: {
+        uuid: uuid
+      }
+    }
   end
     
   def order ins, socket, req

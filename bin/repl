@@ -112,6 +112,28 @@ class Client < TCPSocket
       
     queue.push('address', &b)
   end
+
+  def trades markets, &b
+    command({
+      type:   "trades",
+      params: {
+        markets: markets
+      }
+    })
+      
+    queue.push('trades', &b)
+  end
+  
+  def cancel uuid, &b
+    command({
+      type:   "cancel",
+      params: {
+        uuid: uuid
+      }
+    })
+      
+    queue.push('cancel', &b)
+  end  
   
   def balances *coins, market: nil, nonzero: false, &b
     if market
@@ -146,11 +168,12 @@ class Client < TCPSocket
     end
   end
   
-  def balance coin, &b
+  def balance coin, update: false, &b
     command({
       type:   "balances",
       params: {
-        coins: [c=coin.to_s.upcase]
+        coins:  [c=coin.to_s.upcase],
+        update: update
       }
     })
       

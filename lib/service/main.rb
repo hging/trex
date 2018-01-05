@@ -20,7 +20,7 @@ class << self
     
     b      = market.book
     
-    summaries.find do |s| s['MarketName'] == market.name end['Last'] = book.last
+    summaries.find do |s| s['MarketName'] == market.name end['Last'] = market.book.last
     
     {
       status: 'tick',
@@ -28,8 +28,8 @@ class << self
         market:       market.name,
     
         balances:     {
-                        base: market.balances[:base].to_h,
-                        coin: market.balances[:coin].to_h
+                        base: @commands.get_balance_rates(self, market.balances[:base]),
+                        coin: @commands.get_balance_rates(self, market.balances[:coin])
                       },
     
         bid:          b.high_bid,
