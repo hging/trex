@@ -16,4 +16,4 @@ p GDX.env[:account].balance :LTC
 act.api.last_trade do |resp|
   p "The spot rate is $ %.2f" %  resp.price
 end
-p act.coinbase_accounts.response
+p act.coinbase_accounts

@@ -13,19 +13,7 @@ module Trex
     def self.extended ins
       super
       
-      Trex.timeout 3500 do
-        h = {}
-      
-        ins.h.keys.each do |k|
-          h[k.to_s] = ins.h[k]
-        end
-      
-        open('https://socket.bittrex.com/signalr/ping', h).read
-      
-        ins.puts "{}"
-      
-        true
-      end
+
       
       ins.on :message do |e|
         puts e.data if ARGV.index("--trex-debug-socket-messages")
@@ -132,7 +120,6 @@ module Trex
     # 
     def subscribe *markets      
       markets.each do |market|
-        SocketAPI.requested_rates[market] = true
         puts "{H: 'corehub', M: 'SubscribeToExchangeDeltas', A: #{[market].to_json}, I: 0}"  
       end
     end

@@ -14,8 +14,8 @@ module CB
       env[:account_file] = account_file
       
       obj    = JSON.parse(open(account_file).read)
-      key    = obj['gdax']['key']
-      secret = obj['gdax']['secret']
+      key    = obj['coinbase']['key']
+      secret = obj['coinbase']['secret']
 
       env[:account] = CB::Account.new(key,secret)
     end  
@@ -48,7 +48,7 @@ module CB
     def balance sym
       raise "No Symbol: #{sym}" unless id = @product_map[sym.to_s.upcase]
     
-      Balance.new api.account(id)
+      Balance.from_obj api.account(id)
     end
     
     def balances
@@ -65,7 +65,7 @@ module CB
     
     end    
     
-    Balance = Struct.new(*(["id", "currency", "balance", "available", "hold", "profile_id"].map do |k| k.to_sym end)) do
+    Balance = Struct.new(*(["id", "name", "primary", "type", "currency", "balance", "created_at", "updated_at", "resource", "resource_path", "native_balance"].map do |k| k.to_sym end)) do
       def self.from_obj acct
         ins = new
         
@@ -77,11 +77,15 @@ module CB
       end
       
       def avail
-        available
+        balance['amount']
       end
       
       def amount
-        balance
+        balance['amount']
+      end
+      
+      def native
+        native_balance['amount']
       end
     end
   end  
