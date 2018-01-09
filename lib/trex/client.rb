@@ -1,4 +1,5 @@
-class Sync
+module Trex
+class Client
   module HashObject
     def self.becomes o
       return o unless o.respond_to?(:"[]")
@@ -37,9 +38,7 @@ class Sync
   
   require 'moving_average'
   
-  attr_reader :commands
   def initialize pry=nil
-    @commands = Commands.new
     @pry      = pry
     
     @streaming = []
@@ -52,13 +51,13 @@ class Sync
   end 
   
   
-  def sum
+  def sum bool = false, balances: account.balances
     avail = []
     total = []
     
-    summaries = summaries
+    @summaries = summaries
     
-    Trex.env[:balances].find_all do |b|
+    balances.find_all do |b|
       b.amount > 0
     end.each do |b|
       if b.coin == :USDT
@@ -101,6 +100,8 @@ class Sync
     
     total.each do |v| t+=v end
     avail.each do |v| a+=v end
+    
+    @summaries = nil
         
     result({
       total: t,
@@ -122,7 +123,7 @@ class Sync
   end
   
   def get_balance_rates bal, update=false
-    @summaries = summaries
+    summaries
     
     markets = summaries.find_all do |s|
       s['MarketName'].split("-")[1] == bal.coin.to_s
@@ -159,9 +160,7 @@ class Sync
     b['usd']         = b['markets'][high]
     b['high-market'] = high  
     b['low-market']  = low
-    
-    @summaries = nil
-    
+
     result b
   end  
   
@@ -272,7 +271,7 @@ class Sync
     @summaries = summaries
     
     a = account.balances.find_all do |b| c.index(b.coin) end.map do |bal|
-      commands.get_balance_rates self, bal
+      get_balance_rates bal
     end
     
     @summaries = nil
@@ -487,16 +486,24 @@ class Sync
   
   class WSC
     Thread.abort_on_exception = true
+    
     require 'trex/socket_api'
+    
+    attr_accessor :watches, :pending, :ticks
     def initialize
       @ticks   = []
       @pending = []
+      @watches = {}
       
+      run
+    end
+    
+    def run
       Thread.new do
         Trex.run do
           Trex.timeout 1000 do
-            p :T
             tick
+            
             true
           end
           
@@ -507,16 +514,17 @@ class Sync
             true
           end
         end
-      end
+      end    
     end
     
     def watch market, &b
-      @pending << (proc do
-        p :call
+      @pending << (w=proc do
         Trex.socket.order_books market do |*o|
           b.call *o
         end
       end)
+      
+      @watches[market] = w
     end
     
     def tick
@@ -526,15 +534,37 @@ class Sync
     def on_tick &b
       @ticks << b
     end
+    
+    def restart
+      Trex.socket.instance_variable_set("@singleton", nil)
+      
+      run
+      
+      markets = []
+      
+      watches.each_pair do |m, w|
+        markets << m
+      end
+      
+      Trex.socket.order_books *markets do |b,m,*o|
+        watches[m].call(b,m,*o)
+      end
+    end
+    
+    def quit
+      @pending << (proc do
+        Trex.quit
+      end)
+    end
   end
   
+  attr_accessor :wsc
   def stream market, on_tick: nil, &cb
     @wsc ||= WSC.new
     
     @wsc.on_tick &on_tick if on_tick
     
     @wsc.watch market do |b, m, *o|
-      p :streamed
       if !@streaming.index(m)
         @streaming << m
         @books[m]=b
@@ -545,5 +575,48 @@ class Sync
       
       cb.call b,m,o
     end
-  end  
+  end
+  
+  def asap market, base, percent: 0.006, pos: :buy, &cb
+    pos = pos
+    
+    @@oo = nil
+    
+    stream market do |b,m,o|
+      cb.call b,m,o
+      
+      next if @oo
+      
+      if b.diff <= base and pos == :buy
+        if market=~/^USDT/
+          @oo = usd! market.split("-")[1].upcase.to_sym, :all, :diff
+        else
+          @oo = btc! market.split("-")[1].upcase.to_sym, :all, :diff
+        end
+        
+        p pos = :sell
+      elsif b.diff >= base+(base*percent) and pos == :sell
+        if market=~/^USDT/
+          @oo = usd? market.split("-")[1].upcase.to_sym, :all, :diff
+        else
+          @oo = btc? market.split("-")[1].upcase.to_sym, :all, :diff
+        end
+        
+        p pos = :buy 
+      end
+      
+      if @oo
+        Thread.new do
+          until oo=order(@oo['uuid']) and oo.closed?
+            sleep 2
+          end
+          
+          sleep 1
+          
+          @oo = nil
+        end
+      end
+    end
+  end 
+end
 end

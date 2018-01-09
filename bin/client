@@ -1,0 +1,13 @@
+#!/usr/bin/env ruby
+$: << File.join(File.dirname(__FILE__), '..', 'lib')
+require 'trex'
+require 'trex/client'
+require 'pry'
+
+class << self
+  def client
+    @client ||= Trex::Client.new
+  end
+end
+
+Pry.start
