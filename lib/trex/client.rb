@@ -400,14 +400,14 @@ class Client
   end
   
   def withdraw wallet, coin, amount
-    if amount < 0
+    if amount.is_a?(Numeric) and amount < 0
       amount = account.balance(coin.to_s.upcase.to_sym).avail * amount.abs
     end
     
     amt = amount ||= Trex.env[:balances].find do |b| b.coin == coin.to_s.upcase.to_sym end.avail
     
-    if !addr and ARGV.find do |a| a =~ /\-\-wallets\=(.*)/ end
-      addr = JSON.parse(open($1).read)[wallet][coin]
+    if true and ARGV.find do |a| a =~ /\-\-wallets\=(.*)/ end
+      addr = JSON.parse(open($1).read)[wallet.to_s][coin.to_s]
     end
 
     raise "No address!" unless addr
