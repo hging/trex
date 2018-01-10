@@ -475,7 +475,7 @@ class Client
   def study_market market, periods: 60, interval: :oneMin, studies: [{ema: 12}, {ema: 26}], field: :close
     ticks = history market, interval: interval, field: field
     
-    res = {}
+    res = {ticks: ticks[(-1*(periods+1))..-1]}
     
     studies.each do |s|
       res[(s.keys[0].to_s+s[s.keys[0]].to_s).to_sym] = study(ticks[(-1*(periods+1))..-1], type: s.keys[0], length: s[s.keys[0]])
@@ -616,6 +616,14 @@ class Client
           @oo = nil
         end
       end
+    end
+  end
+  
+  def self.become ins
+    def ins.method_missing m,*o,&b
+      client.send m,*o,&b
+    rescue => e
+      super
     end
   end 
 end
