@@ -6,10 +6,14 @@ class Client
       
       return o if o.is_a?(String)
       
+      return o if o.is_a?(Symbol)
+      
       o.extend self
       
       (o = o[:result] || o) if o.is_a?(self) and !o.is_a?(Array) and !o.is_a?(Struct)
       
+      o
+    rescue
       o
     end
     
@@ -616,6 +620,68 @@ class Client
           @oo = nil
         end
       end
+    end
+  end
+  
+  def tick!
+    @display_tick = !@display_tick
+  end
+ 
+  def ticker pry=@pry, coins: nil
+    @pry = pry
+  
+    if !coins
+      h=holds.map do |b|
+        a={amount: b.amount, coin: b.coin}
+        HashObject.becomes(a)
+        a
+      end
+    end
+    map = []
+    
+    tick = Proc.new do
+      t = 0
+      
+      h.each do |b|
+        next unless map.index(b.coin) or @books.keys.find do |k| k.split("-")[1] == b.coin.to_s end
+    
+        map << b.coin unless map.index(b.coin)
+      
+        b[:usd_rate] = r = btc2usd(b[:coin]) if (b[:coin] != :BTC) and (b[:coin] != :USDT)
+        b[:usd_rate] = r = btc if b[:coin] == :BTC
+        b[:usd_rate] = r = 1 if b[:coin] == :USDT
+        b[:usd]      = u = b[:amount] * r
+        t+=u
+        b
+      end
+      
+      if @display_tick
+        print `clear`
+        pp({
+          sum:   t,
+          holds: h
+        })
+      end
+    end
+    
+    stream "USDT-BTC" do |b, _| tick.call end
+    
+    h.find_all do |o| o[:coin] != :USDT and o[:coin] != :BTC end.map do |o| 
+      stream "BTC-#{o.coin}".upcase do |b,_| tick.call end
+      
+      o
+    end
+  end
+  
+  def enter a, rate: :last, market: :btc
+    a.map do |b| 
+      send :"#{market}!", b.coin, :all, rate
+    end
+  end
+  
+  def exit a, rate: :last, market: :btc
+    a.map do |b| 
+      send :"#{market}?", b.coin, :all, rate
     end
   end
   
