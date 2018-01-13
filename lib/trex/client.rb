@@ -241,9 +241,11 @@ class Client
   
   def book m, bool=false
     if b = @books[m]
-      b.asks.clear
-      b.bids.clear
-      b.init m if bool and !@streaming.index(m)
+      if bool and !@streaming.index(m)
+        b.asks.clear
+        b.bids.clear
+        b.init m
+      end
     else  
       b = Trex::Market::OrderBook.init
       b.init m
@@ -254,13 +256,13 @@ class Client
     b
   end
   
-  def btc rate = :last
+  def btc rate: :last
     book("USDT-BTC", true).send rate
   end
   
-  def btc2usd coin, rate = :last, btc_r = :last
+  def btc2usd coin, rate: :last, btc_r: :last
     r = book("BTC-#{coin}".upcase, true).send rate
-    r * btc(btc_r)
+    r * btc(rate: btc_r)
   end
   
   def last market, rate = :last
@@ -627,28 +629,46 @@ class Client
     @display_tick = !@display_tick
   end
  
-  def ticker pry=@pry, coins: nil
+  def ticker pry=@pry, coins: nil, rate: :last, holds: nil
     @pry = pry
   
-    if !coins
+    if !coins and !holds
       h=holds.map do |b|
         a={amount: b.amount, coin: b.coin}
         HashObject.becomes(a)
         a
       end
+    elsif coins
+      h = coins.map do |c|
+        b = account.balance c
+        a={amount: b.amount, coin: b.coin}
+        HashObject.becomes(a)
+        a        
+      end 
+      
+    elsif holds
+      h = holds.map do |a|
+        HashObject.becomes a
+        a
+      end    
     end
-    map = []
     
     tick = Proc.new do
+      go = []
+      
+      h.each do |b|
+        next if b.coin == :USDT or b.coin == :BTC
+        go << false if !@books.keys.index("BTC-#{b.coin}") 
+      end
+      
+      next if go.index(false)
+      next if !@books.keys.index("USDT-BTC") 
+      
       t = 0
       
       h.each do |b|
-        next unless map.index(b.coin) or @books.keys.find do |k| k.split("-")[1] == b.coin.to_s end
-    
-        map << b.coin unless map.index(b.coin)
-      
-        b[:usd_rate] = r = btc2usd(b[:coin]) if (b[:coin] != :BTC) and (b[:coin] != :USDT)
-        b[:usd_rate] = r = btc if b[:coin] == :BTC
+        b[:usd_rate] = r = btc2usd(b[:coin], rate: rate, btc_r: rate) if (b[:coin] != :BTC) and (b[:coin] != :USDT)
+        b[:usd_rate] = r = btc(rate: rate) if b[:coin] == :BTC
         b[:usd_rate] = r = 1 if b[:coin] == :USDT
         b[:usd]      = u = b[:amount] * r
         t+=u
