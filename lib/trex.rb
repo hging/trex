@@ -2,6 +2,7 @@ $: << File.expand_path(File.dirname(File.expand_path(__FILE__)))
 
 require 'trex/json_api'
 require 'trex/account'
+require 'trex/client'
 
 begin
   require 'grio'
@@ -41,6 +42,8 @@ module Trex
   def self.env
     @env ||= {last_n_ticks: {}, averages: {}}
   end
+  
+  Trex.env[:debug] = true if ARGV.index "--trex-debug"  
   
   if Object.const_defined?(:GLibRIO)
     env[:grio] = true

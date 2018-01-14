@@ -506,7 +506,7 @@ class Client
     
     def run
       Thread.new do
-        Trex.run do
+       
           Trex.timeout 1000 do
             tick
             
@@ -520,7 +520,7 @@ class Client
             true
           end
         end
-      end    
+          
     end
     
     def watch market, &b
@@ -633,7 +633,7 @@ class Client
     @pry = pry
   
     if !coins and !holds
-      h=holds.map do |b|
+      h=self.holds.map do |b|
         a={amount: b.amount, coin: b.coin}
         HashObject.becomes(a)
         a
@@ -702,6 +702,26 @@ class Client
   def exit a, rate: :last, market: :btc
     a.map do |b| 
       send :"#{market}?", b.coin, :all, rate
+    end
+  end
+  
+  def <= f
+    b=nil
+    @summaries = summaries
+    o = markets.find_all do |m| m=~/^BTC/ end.find_all do |m|
+      (summary(m).last * (b||=btc)) <= f 
+    end.map do |m|
+      summary(m)
+    end
+    @summaries = nil
+    o
+  end
+  
+  def constrain min, max
+    b = nil
+    
+    (self <= max).find_all do |s|
+      (s.last * (b||=btc)) >= min
     end
   end
   

@@ -1,0 +1,148 @@
+#!/usr/bin/env ruby
+
+require 'trex'
+require 'trex/client'
+
+def sim
+  ARGV.index "-s"
+end
+
+def simulate
+  res = client.study_market @market, periods: 1333, studies: [{ema: 8}]
+  
+  ticks = res.ticks
+  ema   = res.ema8
+  
+  ticks = ticks[(-1*ema.length-1)..-1]
+  
+  r=nil
+  ema.each_with_index do |ema,i|
+    [:SIM, i, ema, r=ticks[i+1]]
+    analyze ema, r
+  end
+  
+  puts JSON.pretty_generate({
+    amount: @amt,
+    base:   @base,
+    usd:    (@base+(@amt*r))*client.btc
+  })
+end
+
+class << self
+  attr_reader :client, :market
+
+  def coin
+    @market.split("-")[1].to_sym
+  end
+
+  def run 
+    @client = Trex::Client.new
+    @market = ARGV[0] || "BTC-AEON"
+
+    @history = []
+
+    Trex.timeout 15000 do
+      @history << @book.last if @book
+      @history.shift if @book and @history.length > 10
+      
+      if @book and ema?
+        if @lo
+          sleep 3
+          
+          begin
+            o = client.order @lo['uuid']
+          
+            p o if o.closed?
+
+            o.cancel unless o.closed?
+          rescue
+          end
+          
+          @lo = nil
+        end
+      end
+      
+      true
+    end
+
+    if true #!sim
+      client.stream market do |b,_|
+        @book ||= b
+      
+        analyze(ema, b.last) if ema?
+      end
+      
+      Trex.main
+    else
+      simulate
+    end
+  end
+
+  def ema?
+    @history.length >= 10
+  end
+
+  def ema
+    @history[-9..-1].ema
+  end
+
+  def analyze ema, rate
+    print "\rEMA: #{ema}, rate: #{rate}"
+    
+    return if @lo
+    
+    if rate <= r=ema*0.9965 and !@hold
+      buy rate
+      @hold = true
+    elsif rate >= r=ema*1.0035 and @hold
+      @hold = false
+      sell rate
+    end
+  end
+end
+
+def buy r
+  order :buy, r
+end
+
+def sell r
+  order :sell, r
+end
+
+def order type, rate
+  if sim
+    @oa ||= []   
+    @base ||= 500 / client.btc
+    @amt  ||= @base / rate
+    
+    case type
+    when :buy
+      @amt += (@base*0.5*0.9975) / rate
+      @base = @base - (@base*0.5)
+    when :sell
+      @base += ((a=@amt*0.8)*rate*0.9975)
+      @amt = @amt - a
+    end
+  
+  
+    @oa << [type, rate, @amt, @base] if sim
+  
+    if type == :sell and @oa[-2]
+      @oa.last << (rate/@oa[-2][1])
+    end
+  
+    puts
+    p @oa.last
+  
+    return @oa.last
+  else
+    case type
+    when :buy
+      @lo = client.btc! coin, -0.5, rate
+    when :sell
+      @lo = client.btc? coin, -0.8, rate
+    end    
+  end
+end
+
+run

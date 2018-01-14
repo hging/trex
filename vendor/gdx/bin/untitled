@@ -1,0 +1,59 @@
+require 'trex'
+require 'trex/client'
+
+@market = ARGV[0] || "BTC-AEON"
+
+def simulate
+  res = client.study_market @market
+  
+  ticks = res.ticks
+  ema   = res.ema12
+  
+  ticks.each_with_index do |r,i|
+    anaylize ema[i], r
+  end
+end
+
+def run
+  if !sim
+    client.stream market do
+      anaylize ema, rate
+    end
+  else
+    simulate
+  end
+end
+
+def analyze ema, rate
+  if rate <= r=ema*0.995
+    sell r
+  elsif rate >= r=ema*1.005
+    buy r
+  end
+end
+
+def buy r
+  order :buy, r
+end
+
+def sell r
+  order :sell, r
+end
+
+def order type, rate
+  if sim
+    @amt  ||= 100
+    @base ||= 500 / 13900.0
+    
+    case type
+    when :buy
+      @amt += (b=base*0.5*0.9975) / r
+      @base = @base - b
+    when :sell
+      @base += ((a=@amt*0.5)*r*0.9975)
+      @amt = @amt - a
+    end
+  end
+  
+  p [type, rate, @amt, @base]
+end
