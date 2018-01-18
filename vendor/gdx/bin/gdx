@@ -1,19 +1,54 @@
 #!/usr/bin/env ruby
 require File.expand_path(File.join(File.dirname(__FILE__),'..','lib/gdx'))
 
-act = GDX.env[:account]
 
-class << act.api
+class Flip
+  attr_reader :client, :ws, :oo
+  attr_accessor :base, :spread
+  def initialize base, spread
+    @base   = base
+    @spread = spread
+  
+    @client = GDX::Client.new
 
+    @ws=client.stream "LTC-USD" do |t|
+      print "\rLast: #{t.last} - B: #{t.bid} A: #{t.ask}"
+    end
+
+    ws.done do |m|
+      if oo and m.order_id == oo.id
+        filled
+      end
+    end
+  end
+  
+  def filled
+    if @hold
+      @hold = false
+      @oo   = client.usd? :LTC, 1, base+(spread*0.5)
+    else
+      @hold = true
+      @oo   = client.usd! :LTC, 1, base-(spread*0.5)
+    end
+  end
+  
+  def adj base: nil, spread: nil
+    @spread = spread if spread
+    @base   = base   if base
+    
+    if oo
+      id  = oo.id
+      @oo = nil
+      client.cancel id
+    end
+    
+    @hold = !@hold
+    
+    filled
+  end
 end
 
-p oa=act.open_orders
-#p o = act.order(oa[0].id)
+f = Flip.new 188.63, 2.10
+f.filled
 
-#p o.total.to_f
-p GDX.env[:account].balance :LTC
-
-act.api.last_trade do |resp|
-  p "The spot rate is $ %.2f" %  resp.price
-end
-p act.coinbase_accounts
+while true; sleep 1;end

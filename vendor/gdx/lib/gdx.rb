@@ -49,7 +49,7 @@ module GDX
     def balance sym
       raise "No Symbol: #{sym}" unless id = @product_map[sym.to_s.upcase]
     
-      Balance.new api.account(id)
+      Balance.from_obj api.account(id)
     end
     
     def balances
@@ -114,12 +114,44 @@ module GDX
       Order.from_obj api.order(id)
     end
     
+    def order_history
+      api.fills
+    end
+    
+    def cancel id
+      api.cancel id
+    end
+    
+    def sell market, amount, rate
+      if !amount or amount == :all
+        amount = balance(market.split("-")[0].to_sym)
+      elsif amount < 0
+        amount = (balance(market.split("-")[0].to_sym).avail * amount.abs)      
+      end
+      
+      o = api.sell "%.8f" % amount, "%.2f" % rate, product_id: market
+    
+      Order.from_obj o      
+    end
+
+    def buy market, amount, rate
+      if !amount or amount == :all
+        amount = balance(market.split("-")[1].to_sym).avail / rate
+      elsif amount < 0
+        amount = ((v=balance(market.split("-")[1].to_sym)).avail * amount.abs) / rate
+      end
+      p ["%.8f" % amount, rate]
+      o = api.buy "%.8f" % amount, "%.2f" % rate, product_id: market
+    
+      Order.from_obj o
+    end
+    
     Balance = Struct.new(*(["id", "currency", "balance", "available", "hold", "profile_id"].map do |k| k.to_sym end)) do
       def self.from_obj acct
         ins = new
         
         acct.keys.each do |k|
-          ins[k.to_sym] = acct[k]
+          ins[k.to_sym] = acct.send k
         end
         
         ins
@@ -170,4 +202,77 @@ module GDX
   env!
   
   p env
+  
+  class Client
+    module SocketAPI
+      def tick &b
+        @tick_cb = b
+      end
+      
+      def run market, &b
+        bool = false
+        message do |m|
+          b.call m if b
+
+          case m['type']
+          when "ticker"
+            def m.last; m['price'];    end
+            def m.bid;  m['best_bid']; end
+            def m.ask;  m['best_ask']; end
+            
+            @tick_cb.call m if @tick_cb
+          when 'snapshot'
+           
+          end
+          
+          if !bool
+            @socket.send({ type: 'subscribe',product_ids: [market], channels: ['level2', 'heartbeat', {name: 'ticker', product_ids: [market]}] }.to_json)
+            bool = true
+          end
+        end
+        
+        Thread.new do
+          start!
+        end
+        
+        self
+      end
+    end
+    
+    attr_accessor :account
+    def initialize
+      @account = GDX.env[:account]
+    end
+    Thread.abort_on_exception = true
+    def stream market, on_message: nil, &b
+      ws = Coinbase::Exchange::Websocket.new(product_id: market)
+      ws.extend SocketAPI
+      ws.run market, &on_message
+      ws.tick &b
+      ws    
+    end
+    
+    def balances *o, &b; account.balances(*o, &b); end
+    def balance  *o, &b; account.balance *o,&b;    end
+    def order id; account.order id; end
+    def orders; account.open_orders; end
+    
+    def usd? coin, amount=nil, rate=nil
+      account.sell "#{coin}-USD".upcase, amount, rate
+    end
+    
+    def usd! coin, amount=nil, rate=nil
+      account.buy "#{coin}-USD".upcase, amount, rate
+    end    
+    
+    def cancel id
+      account.cancel id
+    end
+    
+    def cancel_all
+      orders.map do |o|
+        cancel o.id
+      end
+    end
+  end
 end
