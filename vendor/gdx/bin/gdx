@@ -48,7 +48,18 @@ class Flip
   end
 end
 
-f = Flip.new 188.63, 2.10
-f.filled
-
-while true; sleep 1;end
+#f = Flip.new 188.63, 2.10
+#f.filled
+c = 42
+while true; 
+print `clear`
+puts "\e[#{c}m"
+13.times do
+puts (" "*70)
+puts "\n"
+end
+puts "\e[0m"
+sleep 1;
+c+=1
+c=42 if c > 47
+end
