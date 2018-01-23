@@ -1,35 +1,60 @@
 #!/usr/bin/env ruby
 require File.expand_path(File.join(File.dirname(__FILE__),'..','lib/gdx'))
 
+require 'pry'
 
 class Flip
-  attr_reader :client, :ws, :oo
-  attr_accessor :base, :spread
-  def initialize base, spread
+  attr_reader :client, :ws, :oo, :coin, :last, :target, :cycles
+  attr_accessor :base, :spread, :amount
+  def initialize coin, amount, base, spread
     @base   = base
     @spread = spread
-  
+    @coin   = coin
+    @amount = amount
+    
+    @cycles = 0
+    
     @client = GDX::Client.new
 
     @ws=client.stream "LTC-USD" do |t|
-      print "\rLast: #{t.last} - B: #{t.bid} A: #{t.ask}"
+      print "\r#{@hold ? "Selling" : "Buyng"}... Target: #{target} : Last: #{@last=t.last.to_f} - B: #{t.bid} A: #{t.ask} -- Cycles: #{cycles}, Gain: #{gain}                                   "
+    
+      if sim
+        if @hold and target and last and last >= target
+          filled
+        elsif !@hold and target and last and last <= target
+          filled
+        end
+      end    
     end
 
     ws.done do |m|
       if oo and m.order_id == oo.id
         filled
-      end
+      end unless sim
     end
   end
   
   def filled
     if @hold
-      @hold = false
-      @oo   = client.usd? :LTC, 1, base+(spread*0.5)
+      @hold   = false
+      @target = base+(spread*0.5)
+      @oo     = client.usd? coin, amount, target unless sim
     else
-      @hold = true
-      @oo   = client.usd! :LTC, 1, base-(spread*0.5)
+      @hold   = true
+      @target = base-(spread*0.5)
+      @oo     = client.usd! coin, amount, target unless sim
     end
+    
+    cycle
+  end
+  
+  def set_hold
+    @hold = true
+  end
+  
+  def cycle
+    @cycles += 0.5
   end
   
   def adj base: nil, spread: nil
@@ -46,10 +71,139 @@ class Flip
     
     filled
   end
+  
+  def sim
+    ARGV.index("-s")
+  end
+  
+  def gain_per_cycle
+    (spread * 0.997)
+  end
+  
+  def gain
+    gain_per_cycle * cycles.floor
+  end
 end
 
-#f = Flip.new 188.63, 2.10
-#f.filled
+def flip coin, amount, base, spread
+  if !$f
+    $f = Flip.new coin, amount, base, spread
+  end
+  
+  $f
+end
+
+class App
+  class Set
+    attr_accessor :client, :buy, :sell, :hold, :size, :coin
+    def initialize client, coin, size, buy, sell
+      @buy, @sell = buy,sell
+      @client     = client
+      @size       = size 
+      @coin       = coin 
+       
+      order :buy
+    end
+    
+    def fill
+      if hold
+        order :sell
+      else
+        true
+      end
+    end
+    
+    def order type
+      if type == :buy
+        @hold = true
+        
+        @order = client.usd! coin, size, buy
+      elsif type == :sell
+        sleep 0.11
+        @order = client.usd? coin, size, sell
+      end 
+    end
+    
+    def id
+      @order.id
+    end
+  end
+
+  attr_accessor :oo, :client, :ws, :last, :t, :base, :spread, :sells, :buys, :sum, :size, :coin
+  def initialize coin, sum
+    @sum  = sum
+    @coin = coin
+    
+    @client = GDX::Client.new
+
+    @ws = client.stream "LTC-USD" do |t|
+      @last = t.last.to_f
+      
+      update
+    end
+    
+    ws.done do |o|
+      done o.order_id
+    end 
+
+    @base   = last
+    @spread = 1.40
+    @size   = sum / 10.0
+  end
+
+  def init    
+    @buys   = (0..9).map do |i|
+      (last+0.05) - (i*0.02)
+    end
+
+    @sells  = (0..9).map do |i|
+      (last+spread+0.05) - (i*0.02)
+    end    
+
+    @oo = []
+    buys.each_with_index do |b,i|
+      oo << Set.new(client, coin, size, b, sells[i])
+    end
+    
+    sleep 0.8
+    
+    open = client.orders    
+    
+    oo.find_all do |o|
+      !open.find do |a| a.id == o.id end
+    end.each do |o|
+      o.fill
+    end
+    
+    @init = true
+  end
+  
+  def done id
+    return unless @init
+  
+    if set=oo.find do |o| o.id == id end
+      if set.fill
+        oo.delete set
+      end
+    end
+  end
+  
+  def update
+    init if !@init
+  end
+end
+
+def app coin: nil, sum: nil
+  if !coin
+    $app
+  else
+    $app = App.new :LTC, 1
+  end
+end
+
+Pry.start
+
+__END__
 c = 42
 while true; 
 print `clear`
