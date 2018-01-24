@@ -140,7 +140,9 @@ module GDX
       elsif amount < 0
         amount = ((v=balance(market.split("-")[1].to_sym)).avail * amount.abs) / rate
       end
-      p ["%.8f" % amount, rate]
+
+      p ["%.8f" % amount, "%.2f" % rate]
+
       o = api.buy "%.8f" % amount, "%.2f" % rate, product_id: market
     
       Order.from_obj o
