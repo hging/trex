@@ -2,17 +2,55 @@
 require File.expand_path(File.join(File.dirname(__FILE__),'..','lib/gdx'))
 
 
+class Beeper
+  def beep
+    return if @t
+    #Thread.new do
+      @t ||= Thread.new do
+        `aplay ~/*/*.wav`
+      end.join
+      
+      @t = nil
+    #end
+  end
+end
+
 class Flip
-  attr_reader :client, :ws, :oo
+  attr_reader :btc, :client, :ws, :oo
   attr_accessor :base, :spread
   def initialize base, spread
     @base   = base
     @spread = spread
   
+    @beeper = Beeper.new
+  
     @client = GDX::Client.new
 
-    @ws=client.stream "LTC-USD" do |t|
-      print "\rLast: #{t.last} - B: #{t.bid} A: #{t.ask}"
+    f = File.open("size.txt", "w")
+
+    @ws=client.stream "LTC-USD", on_message: (proc do |m| 
+      #puts JSON.pretty_generate(m) 
+    end) do |t|
+      #print "\rLast: #{t.last} - B: #{t.bid} A: #{t.ask}"
+    end
+    
+    @ws2=client.stream "BTC-USD", on_message: (proc do |m| 
+      #puts JSON.pretty_generate(m) 
+    end) do |t|
+      @btc = t.last.to_f
+      print `clear`
+      @m[:pct] = (@ltc=@m.price.to_f) / @btc if @ltc and @m
+      puts JSON.pretty_generate(@m) if @m       
+      check if @m and @ltc
+      #print "\rLast: #{t.last} - B: #{t.bid} A: #{t.ask}"
+    end    
+
+    ws.match do |m|
+      print `clear`
+      m[:pct] = (@ltc=m.price.to_f) / @btc if @btc
+      
+      puts JSON.pretty_generate(@m=m) 
+      check
     end
 
     ws.done do |m|
@@ -20,6 +58,16 @@ class Flip
         filled
       end
     end
+  end
+  
+  def check
+    if @m and (@m[:pct].to_f < 0.01642)
+      beep
+    end
+  end
+  
+  def beep
+    @beeper.beep
   end
   
   def filled
@@ -48,18 +96,38 @@ class Flip
   end
 end
 
-#f = Flip.new 188.63, 2.10
+f = Flip.new 188.63, 2.10
 #f.filled
+
+t = 622.0
+buys = [
+  [176.11, a=t/7],
+  [175.53, a],
+  [174.38, a],
+  [172.64, a],
+  [171.16, a],
+  [170.08, a],
+  [168.11, a]
+]
+
+oo = buys.map do |s|
+  r = s[0]
+  a = s[1] / r
+  o = f.client.usd! :LTC, a,r
+end
+
+p oo;exit
+
 c = 42
 while true; 
-print `clear`
-puts "\e[#{c}m"
-13.times do
-puts (" "*70)
-puts "\n"
+#print `clear`
+#puts "\e[#{c}m"
+#13.times do
+#puts (" "*70)
+#puts "\n"
 end
-puts "\e[0m"
-sleep 1;
-c+=1
-c=42 if c > 47
-end
+#puts "\e[0m"
+#sleep 1;
+#c+=1
+#c=42 if c > 47
+#end
