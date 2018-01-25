@@ -128,8 +128,13 @@ module GDX
       elsif amount < 0
         amount = (balance(market.split("-")[0].to_sym).avail * amount.abs)      
       end
-      
-      o = api.sell "%.8f" % amount, "%.2f" % rate, product_id: market
+    
+      m = 2
+      m = 5 if market =~ /BTC$/
+
+      p ["%.5f" % amount, "%.#{m}f" % rate]
+            
+      o = api.sell "%.5f" % amount, "%.#{m}f" % rate, product_id: market, post_only: true
     
       Order.from_obj o      
     end
@@ -141,9 +146,12 @@ module GDX
         amount = ((v=balance(market.split("-")[1].to_sym)).avail * amount.abs) / rate
       end
 
-      p ["%.8f" % amount, "%.2f" % rate]
+      m = 2
+      m = 5 if market =~ /BTC$/
 
-      o = api.buy "%.8f" % amount, "%.2f" % rate, product_id: market
+      p ["%.5f" % amount, "%.#{m}f" % rate]
+
+      o = api.buy "%.5f" % amount, "%.#{m}f" % rate, product_id: market, post_only: true
     
       Order.from_obj o
     end
@@ -169,7 +177,7 @@ module GDX
     end
   end 
   
-  Order = Struct.new(:id, :price, :size, :product_id, :side, :stp, :type, :time_in_force, :post_only, :created_at, :fill_fees, :filled_size, :executed_value, :status, :settled) do
+  Order = Struct.new(:id, :price, :size, :product_id, :side, :stp, :type, :time_in_force, :post_only, :created_at, :fill_fees, :filled_size, :executed_value, :status, :settled, :reject_reason) do
     def self.from_obj o
       ins = new
        

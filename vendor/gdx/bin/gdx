@@ -7,97 +7,157 @@ class Beeper
     return if @t
     #Thread.new do
       @t ||= Thread.new do
-        `aplay ~/*/*.wav`
-      end.join
+        #`aplay ~/*/*.wav`
+        print "\a"
+      end
+      
+      @t.join
       
       @t = nil
     #end
   end
 end
 
-class Flip
-  attr_reader :btc, :client, :ws, :oo
-  attr_accessor :base, :spread
-  def initialize base, spread
-    @base   = base
-    @spread = spread
-  
-    @beeper = Beeper.new
-  
-    @client = GDX::Client.new
+Thread.abort_on_exception = true
 
-    f = File.open("size.txt", "w")
-
-    @ws=client.stream "LTC-USD", on_message: (proc do |m| 
-      #puts JSON.pretty_generate(m) 
-    end) do |t|
-      #print "\rLast: #{t.last} - B: #{t.bid} A: #{t.ask}"
+class Market
+  attr_reader :client, :bid, :ask, :last, :coin, :base, :socket
+  def initialize client, coin, base
+    @client = client
+    @coin, @base = coin, base 
+    
+    @socket = client.stream market do |t|
+      init t
     end
     
-    @ws2=client.stream "BTC-USD", on_message: (proc do |m| 
-      #puts JSON.pretty_generate(m) 
-    end) do |t|
-      @btc = t.last.to_f
-      print `clear`
-      @m[:pct] = (@ltc=@m.price.to_f) / @btc if @ltc and @m
-      puts JSON.pretty_generate(@m) if @m       
-      check if @m and @ltc
-      #print "\rLast: #{t.last} - B: #{t.bid} A: #{t.ask}"
-    end    
-
-    ws.match do |m|
-      print `clear`
-      m[:pct] = (@ltc=m.price.to_f) / @btc if @btc
-      
-      puts JSON.pretty_generate(@m=m) 
-      check
+    # @socket.match do |m|
+        #
+    # end
+    
+    @socket.done do |m|
+      filled m.order_id
     end
+  end
+  
+  def init t
+    @last, @ask, @bid = t.last.to_f, t.ask.to_f, t.bid.to_f
+  end
+  
+  def market
+    @market ||= "#{coin}-#{base}"
+  end
+  
+  def sell amt, rate, &b
+    @sell_cb = b
+    @sell_order = client.account.sell market, amt, rate 
+    
+    check_fill @sell_order
+  end
 
-    ws.done do |m|
-      if oo and m.order_id == oo.id
-        filled
+  def buy amt, rate, &b
+    @buy_cb = b
+    @buy_order = client.account.buy market, amt, rate 
+    
+    check_fill @buy_order
+  end
+  
+  def check_fill o
+    Thread.new do
+      sleep 1  
+      if !client.orders.find do |oo|
+        oo.id == o.id
+      end
+        filled o.id
       end
     end
   end
   
-  def check
-    if @m and (@m[:pct].to_f < 0.01642)
-      beep
+  def filled id
+    if @buy_order and @buy_order.id == id
+      @buy_cb.call
+    elsif @sell_order and @sell_order.id == id
+      @sell_cb.call
     end
+  end
+end
+
+class Intra
+  attr_reader :beeper, :client
+  attr_accessor :coin_usd, :coin_btc, :btc
+  def initialize
+    @beeper = Beeper.new
+  
+    @client = GDX::Client.new
+    
+    @coin_usd = Market.new client, :LTC, :USD
+    @coin_btc = Market.new client, :LTC, :BTC
+    @btc      = Market.new client, :BTC, :USD
+  
+    Thread.new do
+      loop do
+        next unless coin_usd.last and btc.last and coin_btc.last
+        
+        if (a=profit_usd) > 0.15
+          sell_usd
+        end
+        
+        print "\r#{coin_usd.last} #{@btc2usd} #{btc.last} #{"%.2f" % a}".ljust(70)
+      end
+    end
+  end
+  
+  def profit_usd
+    @sell = coin_usd.ask
+    @sell - btc2usd(@buy = coin_btc.bid)
+  end
+  
+  def btc2usd(ask=nil)
+    @btc2usd = ask * btc.bid if ask
+    @btc2usd
   end
   
   def beep
     @beeper.beep
   end
   
-  def filled
-    if @hold
-      @hold = false
-      @oo   = client.usd? :LTC, 1, base+(spread*0.5)
-    else
-      @hold = true
-      @oo   = client.usd! :LTC, 1, base-(spread*0.5)
+  def sell_usd
+    return if @hold
+  
+    @hold = true
+  
+    p [:EXECUTE, @sell, @btc2usd]
+    
+    btc.buy @buy, @btc.bid do
+      sleep 0.5
+      coin_btc.buy 1, @buy do
+        sleep 0.5
+        coin_usd.sell 1, @sell do
+          @hold = false
+        end
+      end
     end
   end
+
+  def sell_btc
+    return if @hold
   
-  def adj base: nil, spread: nil
-    @spread = spread if spread
-    @base   = base   if base
+    @hold = true
+  
+    p [:EXECUTE, @sell, @buy]
     
-    if oo
-      id  = oo.id
-      @oo = nil
-      client.cancel id
+    coin_usd.buy 1, @sell do
+      sleep 0.2
+      coin_btc.sell 1, @buy do
+        sleep 0.2
+        btc.sell @buy, btc.ask do
+          @hold = false
+        end
+      end
     end
-    
-    @hold = !@hold
-    
-    filled
   end
 end
 
-f = Flip.new 188.63, 2.10
-#f.filled
+intra = Intra.new
 
 t = 622.0
 buys = [
@@ -113,10 +173,10 @@ buys = [
 oo = buys.map do |s|
   r = s[0]
   a = s[1] / r
-  o = f.client.usd! :LTC, a,r
+ # o = f.client.usd! :LTC, a,r
 end
 
-p oo;exit
+p oo
 
 c = 42
 while true; 
