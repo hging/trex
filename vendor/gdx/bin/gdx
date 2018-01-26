@@ -98,10 +98,10 @@ class Intra
         next unless coin_usd.last and btc.last and coin_btc.last
         
         if (a=profit_usd) > 0.15
-          sell_usd
+          # sell_usd
         end
         
-        print "\r#{coin_usd.last} #{@btc2usd} #{btc.last} #{"%.2f" % a}".ljust(70)
+        print "\r#{"%.3f" % z=coin_usd.last} #{"%.3f" % @btc2usd} ^^ #{"%.5f" % coin_btc.last} ^^ #{"%.3f" % btc.last} #{"%.2f" % a} -- #{z-(z*0.997*0.997*0.997)}".ljust(75)
       end
     end
   end
@@ -159,21 +159,25 @@ end
 
 intra = Intra.new
 
-t = 622.0
+t = 2100/3.0
 buys = [
-  [176.11, a=t/7],
-  [175.53, a],
-  [174.38, a],
-  [172.64, a],
-  [171.16, a],
-  [170.08, a],
-  [168.11, a]
+  [169.68, a=t/10],
+  [169.22, a],
+  [169.11, a],
+  [168.44, a],
+  [168.23, a],
+  [167.08, a],
+  [167.84, a],
+  [165.66, a],
+  [164.48, a],
+  [161.21, a]
 ]
 
+c=GDX::Client.new
 oo = buys.map do |s|
   r = s[0]
   a = s[1] / r
- # o = f.client.usd! :LTC, a,r
+  o = c.usd! :LTC, a,r
 end
 
 p oo
