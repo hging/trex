@@ -265,7 +265,13 @@ class Client
     r * btc(rate: btc_r)
   end
   
-  def last market, rate = :last
+  def last coin, base: :USDT, rate: :last
+    if coin.is_a?(String)
+      market = coin
+    else
+      market = "#{base}-#{coin}"
+    end
+    p market
     r = book(market.upcase, true).send rate  
   end
   
@@ -410,7 +416,7 @@ class Client
       amount = account.balance(coin.to_s.upcase.to_sym).avail * amount.abs
     end
     
-    amt = amount ||= Trex.env[:balances].find do |b| b.coin == coin.to_s.upcase.to_sym end.avail
+    amt = amount ||= account.balances.find do |b| b.coin == coin.to_s.upcase.to_sym end.avail
     
     if true and ARGV.find do |a| a =~ /\-\-wallets\=(.*)/ end
       addr = JSON.parse(open($1).read)[wallet.to_s][coin.to_s]
@@ -723,6 +729,10 @@ class Client
     (self <= max).find_all do |s|
       (s.last * (b||=btc)) >= min
     end
+  end
+  
+  def cancel!
+    cancel_all
   end
   
   def self.become ins

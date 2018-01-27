@@ -1,0 +1,22 @@
+#!/usr/bin/env ruby
+
+
+require 'trex'
+require 'trex/client'
+#require File.expand_path(File.join(File.dirname(__FILE__),'..','vendor/cex/lib/cex'))
+require File.expand_path(File.join(File.dirname(__FILE__),'..','vendor/gdx/lib/gdx'))
+
+require 'pry'
+
+class << self
+  attr_reader :trex, :gdax
+  def init
+    @gdax = GDX::Client.new
+    @trex = Trex::Client.new
+#cex  = CEX::Client.new
+  end
+end
+
+init
+
+Pry.start

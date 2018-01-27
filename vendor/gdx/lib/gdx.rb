@@ -284,5 +284,17 @@ module GDX
         cancel o.id
       end
     end
+    
+    def last coin, base: :USD, rate: :last
+      if coin.is_a? String
+        base, coin = coin.split("-")
+      end
+      
+      t = account.api.last_trade product_id: "#{coin}-#{base}"
+    
+      rate = :price if rate == :last
+    
+      t.send(rate).to_f
+    end
   end
 end
