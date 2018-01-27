@@ -177,7 +177,7 @@ c=GDX::Client.new
 oo = buys.map do |s|
   r = s[0]
   a = s[1] / r
-  o = c.usd! :LTC, a,r
+  #o = c.usd! :LTC, a,r
 end
 
 p oo

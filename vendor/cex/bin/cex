@@ -3,5 +3,19 @@ require File.expand_path(File.join(File.dirname(__FILE__),'..','lib/cex'))
 
 
 cex = CEX::Client.new
-
+p cex.account.api.balance
 p cex.last :ETH #, base: :USD
+
+c = proc do
+  p :CONNECTED
+end
+
+m = proc do |m|
+  p m
+end
+
+cex.stream "XRP-BTC", connect: c, message: m do |t|
+  print "\r#{t.to_h.to_json}"
+end
+
+while true; sleep 1; end

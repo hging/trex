@@ -1,0 +1,44 @@
+#!/usr/bin/env ruby
+
+
+require 'trex'
+require 'trex/client'
+require File.expand_path(File.join(File.dirname(__FILE__),'..','vendor/cex/lib/cex'))
+require File.expand_path(File.join(File.dirname(__FILE__),'..','vendor/gdx/lib/gdx'))
+
+gdax = GDX::Client.new
+trex = Trex::Client.new
+cex  = CEX::Client.new
+
+amt = 2200
+
+
+
+gdax2trex = [:LTC, :ETH].map do |c|
+  [
+    gdax.account.api.last_trade(product_id: "#{c}-USD").price.to_f,  
+    trex.last("USDT-#{c}"),
+    c
+  ]
+end.sort do |a, b| (a[1] / a[0].to_f) <=> b[1]/b[0] end[-1]
+
+trex2gdax = [:LTC, :ETH].map do |c|
+  [
+    gdax.account.api.last_trade(product_id: "#{c}-USD").price.to_f,
+    trex.last("USDT-#{c}"),
+    c
+  ]
+end.sort do |a, b| (a[0] / a[1].to_f) <=> b[0]/b[1].to_f end[-1]
+
+p2 = (a=gdax2trex)[1]/a[0]
+p3 = (a=trex2gdax)[0]/a[1]
+
+p res = amt*p2
+p res=res*p3
+
+p [
+  [p2, gdax2trex],
+  [p3, trex2gdax]
+]
+
+p res
