@@ -43,6 +43,15 @@ module Tx
   def self.eth id
     Util::HashObject.becomes JSON.parse(open("https://api.blockcypher.com/v1/eth/main/txs/#{id}").read)
   end
+  
+  def self.poll type, id, &b
+    Thread.new do
+      loop do
+        b.call(send(type, id))
+        sleep 5
+      end
+    end
+  end
 end
 
 if __FILE__ == $0
