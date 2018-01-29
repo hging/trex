@@ -41,14 +41,36 @@ module Tx
   require 'open-uri'
   
   def self.eth id
-    Util::HashObject.becomes JSON.parse(open("https://api.blockcypher.com/v1/eth/main/txs/#{id}").read)
+    get_tx :eth, :eth, id
+  end
+  
+  def self.ltc id
+    get_tx :ltc, :btc, id
+  end
+  
+  def self.get_tx network, type, id
+    case type
+    when :btc
+      o = JSON.parse(open("https://chain.so/api/v2/get_tx/#{network.to_s.upcase}/#{id}").read)
+      n = {
+        'status': o['status'],
+      }
+    
+      o['data'].each_pair do |k,v|
+        n[k] = v
+      end
+    
+      Util::HashObject.becomes n
+    when :eth
+      Util::HashObject.becomes JSON.parse(open("https://api.blockcypher.com/v1/eth/main/txs/#{id}").read)
+    end
   end
   
   def self.poll type, id, &b
     Thread.new do
       loop do
         b.call(send(type, id))
-        sleep 5
+        sleep 7.5
       end
     end
   end
