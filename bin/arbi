@@ -6,39 +6,107 @@ require 'trex/client'
 #require File.expand_path(File.join(File.dirname(__FILE__),'..','vendor/cex/lib/cex'))
 require File.expand_path(File.join(File.dirname(__FILE__),'..','vendor/gdx/lib/gdx'))
 
-gdax = GDX::Client.new
-trex = Trex::Client.new
-#cex  = CEX::Client.new
+require 'pry'
 
-amt = 2200
+class Order
+  attr_reader :coin, :enter, :max_stop, :stop_pct, :amount, :cash_out, :client, :rate, :tick
+  def initialize coin, enter, max_stop, stop_pct, amount, cash_out
+    @ws = client.stream "#{coin}-USD" do |t|
+      @rate = t.last.to_f
+      @tick = t
+      
+      update
+    end
+    
+    @ws.done do |o|
+      if order and order.id == o.order_id
+        set_stop
+        
+        @order = nil
+      elsif @sell and @sell.id == o.order_id
+        beep
+      end
+    end
+    
+    until tick;
+    end;
+    
+    @order = client.usd! coin, amount, tick.bid 
+  end
+  
+  def beep
+    print `\a`
+  end
+  
+  def sell rate
+    client.usd? coin, :all, rate
+  end
+  
+  def update
+    if sum <= max_stop
+      sell tick.ask.to_f
+    elsif hold and cash_out and rate >= cash_out
+      sell tick.ask.to_f
+    elsif hold
+      if stop_limit and rate and (rate <= stop_limit)
+        sell tick.ask.to_f
+      else
+        if did_profit
+          stop_limit = stop_pct * rate
+        else
+          stop_limit = max_stop
+        end
+      end
+    end
+  end
+end
+
+class << self
+  attr_accessor :enter, :out, :swap, :gdax, :trex, :amount
+
+  def init
+    @gdax = GDX::Client.new
+    @trex = Trex::Client.new
+  
+    @amount = 1.8547
+  end
+
+  def run
+    trex.stream "ETH-LTC" do |t|
+      @swap = t.ask
+      update
+    end
+    
+    gdax.stream "ETH-USD" do |t|
+      @enter = t.bid.to_f
+      update
+    end
+    
+    
+    gdax.stream "LTC-USD" do |t|
+      @out = t.ask.to_f
+      update
+    end    
+    
+    Thread.new do
+      Trex.main
+    end
+  end
+  
+  def gain
+    return unless swap and amount and out and enter  
+  
+    ltc = (amount*0.9975) / swap
+    usd = ltc*out
+    
+    usd - (amount*enter)
+  end
+  
+  def update
+    print "\r #{enter} #{swap} #{out} -- #{gain}                 "
+  end
+end
 
 
 
-gdax2trex = [:LTC, :ETH].map do |c|
-  [
-    gdax.account.api.last_trade(product_id: "#{c}-USD").price.to_f,  
-    trex.last("USDT-#{c}"),
-    c
-  ]
-end.sort do |a, b| (a[1] / a[0].to_f) <=> b[1]/b[0] end[-1]
-
-trex2gdax = [:LTC, :ETH].map do |c|
-  [
-    gdax.account.api.last_trade(product_id: "#{c}-USD").price.to_f,
-    trex.last("USDT-#{c}"),
-    c
-  ]
-end.sort do |a, b| (a[0] / a[1].to_f) <=> b[0]/b[1].to_f end[-1]
-
-p2 = (a=gdax2trex)[1]/a[0]
-p3 = (a=trex2gdax)[0]/a[1]
-
-p res = amt*p2
-p res=res*p3
-
-p [
-  [p2, gdax2trex],
-  [p3, trex2gdax]
-]
-
-p res
+Pry.start

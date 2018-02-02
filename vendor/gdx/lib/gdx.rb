@@ -80,7 +80,7 @@ module GDX
     end
     
     def withdraw2addr coin, addr, amount
-      withdraw addr, amount, type: crypto, currency: coin
+      withdraw addr, amount, type: :crypto, currency: coin
     end
     
     def coinbase_accounts
@@ -177,7 +177,7 @@ module GDX
     end
   end 
   
-  Order = Struct.new(:id, :price, :size, :product_id, :side, :stp, :type, :time_in_force, :post_only, :created_at, :fill_fees, :filled_size, :executed_value, :status, :settled, :reject_reason) do
+  Order = Struct.new(:id, :price, :size, :product_id, :side, :stp, :type, :time_in_force, :post_only, :created_at, :fill_fees, :filled_size, :executed_value, :status, :settled, :reject_reason, :done_at, :done_reason) do
     def self.from_obj o
       ins = new
        
