@@ -65,7 +65,7 @@ end
 
 
 def prep coin, base, start
-  base
+  t=base
 
   incr = 0.25
   size = 0.1
