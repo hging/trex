@@ -111,7 +111,13 @@ end
 def execute orders
   c=0
   orders.map do |o|
-    oo = o.execute client
+    begin
+      oo = o.execute client
+    rescue
+      orders.delete o
+      break
+    end
+    
     c+=1
     
     if c >= 5
@@ -141,6 +147,36 @@ def import
   orders = JSON.parse(open("orders.json").read).map do |o| Order.from_hash o end
 end
 
+def listen coin, on_message: nil, &b
+  ws = client.stream "#{coin}-USD", on_message: on_message do |*o|
+  end
+  
+  ws.done do |o|
+    b.call o
+  end
+  
+  ws
+end
+
+def dolla_over coin, funds, start, step: 0.10, size: 0.01, on_message: nil
+  orders = prep coin, funds, start
+ 
+  orders.each do |o| o.cash_out = o.rate + 1.0 end
+ 
+  execute orders
+  log     orders
+  
+  ws=listen coin, on_message: on_message do |o|
+    if order=orders.find do |oo| oo.id and (oo.id == o.order_id) end
+      order.flip! client
+    elsif order=orders.find do |oo| oo.sell_id and (oo.sell_id == o.order_id) end
+      order.complete!
+    end
+  end  
+  
+  orders
+end
+  
 require 'pry'
 
 Pry.start
