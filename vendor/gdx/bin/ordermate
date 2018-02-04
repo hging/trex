@@ -167,12 +167,22 @@ def beep i=1
   $beep = false
 end
 
-def dolla_over coin, funds, start, step: 0.10, size: 0.01, on_message: nil, &b
-  orders = prep coin, funds, start
+def dolla_over coin, funds, start, step: 0.10, size: 0.01, on_message: nil, orders: nil, &b
+  if !orders
+    orders = prep coin, funds, start
  
-  orders.each do |o| o.cash_out = o.rate + 0.3 end
+    orders.each do |o| o.cash_out = o.rate + 0.3 end
  
-  execute orders
+    execute orders
+  else
+    oo = client.orders.find_all do |order| order.product_id == "#{coin}-USD" end
+    orders.find_all do |o|
+      !oo.find do |order| order.id == o.id end
+    end.each do |order|
+      orders.delete order
+    end
+  end
+  
   log     orders
   
   queue = []
