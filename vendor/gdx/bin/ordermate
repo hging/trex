@@ -67,7 +67,7 @@ end
 def prep coin, base, start
   t=base
 
-  incr = 0.25
+  incr = 0.11
   size = 0.1
 
   orders = []
@@ -147,8 +147,9 @@ def import
   orders = JSON.parse(open("orders.json").read).map do |o| Order.from_hash o end
 end
 
-def listen coin, on_message: nil, &b
+def listen coin, on_message: nil, on_tick: nil, &b
   ws = client.stream "#{coin}-USD", on_message: on_message do |*o|
+    on_tick.call *o if on_tick
   end
   
   ws.done do |o|
@@ -158,21 +159,50 @@ def listen coin, on_message: nil, &b
   ws
 end
 
-def dolla_over coin, funds, start, step: 0.10, size: 0.01, on_message: nil
+def beep i=1
+  return if $beep
+  
+  $beep = true
+  print "\a"*i
+  $beep = false
+end
+
+def dolla_over coin, funds, start, step: 0.10, size: 0.01, on_message: nil, &b
   orders = prep coin, funds, start
  
-  orders.each do |o| o.cash_out = o.rate + 1.0 end
+  orders.each do |o| o.cash_out = o.rate + 0.3 end
  
   execute orders
   log     orders
   
-  ws=listen coin, on_message: on_message do |o|
+  queue = []
+  
+  ws=listen coin, on_message: on_message, on_tick: b do |o|
     if order=orders.find do |oo| oo.id and (oo.id == o.order_id) end
-      order.flip! client
+      queue << order
     elsif order=orders.find do |oo| oo.sell_id and (oo.sell_id == o.order_id) end
+      beep 2
       order.complete!
     end
   end  
+  
+  Thread.new do
+    loop do
+      if order = queue.shift
+        begin
+          sleep 0.43      
+          order.flip! client
+          beep 1
+        rescue
+          sleep 0.43      
+          order.flip! client
+          beep 1
+        end
+      end
+      
+      Thread.pass
+    end  
+  end
   
   orders
 end
