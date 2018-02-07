@@ -88,7 +88,71 @@ module CB
         native_balance['amount']
       end
     end
-  end  
+  end 
+  
+  class Client
+    attr_reader :account
+    def initialize
+      @account = CB::env[:account]
+    end
+    
+    def sum_buys prior: nil, after: nil, day_of: nil
+      s=0
+      
+      [:LTC,:ETH,:BTC, :BCH].each do |coin|
+        all=account.api.transactions(coin.to_s, fetch_all: true)
+        
+        if prior
+          all = all.find_all do |t| t.created_at < prior end
+        end
+        
+        if after
+          all = all.find_all do |t| t.created_at > after end
+        end
+        
+        if day_of
+        
+        end 
+        
+        all.find_all do |t| t.type == "buy" end.map do |t| 
+          s+=t.native_amount.amount.to_f
+        end
+      end
+    
+      s
+    end
+    
+    def sum_sells prior: nil, after: nil, day_of: nil
+      s=0
+      
+      [:LTC,:ETH,:BTC, :BCH].each do |coin|
+        all=account.api.transactions(coin.to_s, fetch_all: true)
+        
+        if prior
+          all = all.find_all do |t| t.created_at < prior end
+        end
+        
+        if after
+          all = all.find_all do |t| t.created_at > after end
+        end
+        
+        if day_of
+        
+        end        
+        
+        all.find_all do |t|  t.type == "sell" or ((t.type == "send") and t.native_amount['amount'].to_f < 0 and (!t['to'] or !t['to']['address'])) end.map do |t| 
+          amt = t.native_amount['amount'].to_f
+          s += amt
+        end
+      end
+      
+      s
+    end
+    
+    def net prior: nil, after: nil
+      sum_sells(prior: prior, after: after).abs - sum_buys(prior: prior, after: after)
+    end
+  end 
   
   env!
   
